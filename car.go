@@ -22,7 +22,7 @@ func (c *car) report(mp *measurePoint, msg string, content interface{}) {
 
 func (c *car) start(r *Race) {
 	if len(r.stage) == 0 {
-		r.reportComplete(c)
+		r.finish(c)
 		return
 	}
 
@@ -31,7 +31,7 @@ func (c *car) start(r *Race) {
 		measurePoint := stage[0]
 		stage = stage[1:]
 
-		crash := c.gen.rand.Float64()*c.condition < (c.crashRate+measurePoint.difficulty)/2
+		crash := c.gen.rand.Float64()*c.condition < (c.crashRate/float64(len(r.stage))+measurePoint.difficulty)/2
 		c.condition -= amortizationRate * measurePoint.difficulty
 
 		t := measurePoint.average +
@@ -55,7 +55,7 @@ func (c *car) start(r *Race) {
 			continue
 		}
 
-		r.reportComplete(c)
+		r.finish(c)
 		return
 	}
 }

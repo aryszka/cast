@@ -6,7 +6,7 @@ import (
 )
 
 func main() {
-	r := cast.NewRace(10000)
+	r := cast.NewRace(1000)
 	r.Dispatcher.Subscribe(&cast.Listener{func(m *cast.Message) {
 		fmt.Printf("%s = %s\n", m.Key, m.Content)
 	}})

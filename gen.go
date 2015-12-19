@@ -8,22 +8,22 @@ const (
 	standardMaxTimeRate = 0.12
 	minSpeedRate        = -0.24
 	maxSpeedRate        = 0.24
-	minCrashRate        = 0.066
-	maxCrashRate        = 0.33
+	minCarCrashRate     = 0.066
+	maxCarCrashRate     = 0.33
 	amortizationRate    = 0.1
 	numberRangeRate     = 6
 
 	// stage:
-	minStageAverage    = 1200000
-	maxStageAverage    = 1500000
-	minMeasurePoint    = 30000
-	maxMeasurePoint    = 90000
-	minDifficulty      = 0.066
-	maxDifficulty      = 0.33
-	minNetworkLatency  = 12
-	maxNetworkLatency  = 300
-	minNetworkStrength = 0.66
-	maxNetworkStrength = 0.99
+	minStageAverage      = 1200000
+	maxStageAverage      = 1500000
+	minMeasurePoint      = 30000
+	maxMeasurePoint      = 90000
+	minSectionDifficulty = 0.066
+	maxSectionDifficulty = 0.33
+	minNetworkLatency    = 12
+	maxNetworkLatency    = 300
+	minNetworkStrength   = 0.66
+	maxNetworkStrength   = 0.99
 )
 
 type generator struct{ rand *rand.Rand }
@@ -73,7 +73,7 @@ func (g *generator) generateCars(n int) []*car {
 		names = append(names[:ni], names[ni+1:]...)
 
 		speedRate := g.betweenFloat(minSpeedRate, maxSpeedRate)
-		crashRate := g.betweenFloat(minCrashRate, maxCrashRate)
+		crashRate := g.betweenFloat(minCarCrashRate, maxCarCrashRate)
 
 		cars = append(cars, &car{
 			number:    number,
@@ -102,7 +102,7 @@ func (g *generator) createStage(t *timer, d *Dispatcher) stage {
 		s = append(s, mp)
 
 		mp.average = g.between(minMeasurePoint, maxMeasurePoint)
-		mp.difficulty = g.betweenFloat(minDifficulty, maxDifficulty)
+		mp.difficulty = g.betweenFloat(minSectionDifficulty, maxSectionDifficulty)
 		mp.radio = &network{
 			latency:  g.between(minNetworkLatency, maxNetworkLatency),
 			strength: g.betweenFloat(minNetworkStrength, maxNetworkStrength),

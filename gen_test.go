@@ -83,7 +83,7 @@ func TestGenerateCarAttributes(t *testing.T) {
 				return
 			}
 
-			if c.crashRate < minCrashRate || c.crashRate >= maxCrashRate {
+			if c.crashRate < minCarCrashRate || c.crashRate >= maxCarCrashRate {
 				t.Error("failed to generate crash rate in range")
 				return
 			}
@@ -137,7 +137,7 @@ func TestMeasurePointDifficulty(t *testing.T) {
 		s := g.createStage(tm, d)
 
 		for _, mp := range s {
-			if mp.difficulty < minDifficulty || mp.difficulty >= maxDifficulty {
+			if mp.difficulty < minSectionDifficulty || mp.difficulty >= maxSectionDifficulty {
 				t.Error("failed to generate stage measure point difficulties in range")
 				return
 			}

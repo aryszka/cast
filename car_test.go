@@ -18,7 +18,7 @@ func TestCompletesWhenStageIsEmpty(t *testing.T) {
 
 	done := make(chan struct{})
 	r.Dispatcher.Subscribe(&Listener{func(m *Message) {
-		if m.Key == fmt.Sprintf(completeFormat, c.number) {
+		if m.Key == fmt.Sprintf(finishFormat, c.number) {
 			if completeReceived {
 				t.Error("complete received twice")
 				close(done)
@@ -62,6 +62,7 @@ func TestCarCrashes(t *testing.T) {
 	r := NewRace(10000)
 	c := r.gen.generateCars(1)[0]
 
+	r.stage = r.stage[:1]
 	c.crashRate = 1
 	for _, mp := range r.stage {
 		mp.difficulty = 1
@@ -132,7 +133,7 @@ func TestCarFinishesRace(t *testing.T) {
 
 	done := make(chan struct{})
 	r.Dispatcher.Subscribe(&Listener{func(m *Message) {
-		if m.Key == fmt.Sprintf(completeFormat, c.number) {
+		if m.Key == fmt.Sprintf(finishFormat, c.number) {
 			close(done)
 		}
 	}})
