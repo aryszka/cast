@@ -88,6 +88,10 @@ func TestGenerateCarAttributes(t *testing.T) {
 				return
 			}
 
+			if c.amortizationRate < minAmortizationRate || c.amortizationRate >= maxAmortizationRate {
+				t.Error("failed to generate amortization rate in range")
+			}
+
 			if c.condition != 1 {
 				t.Error("failed to generate right car condition")
 			}

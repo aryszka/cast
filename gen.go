@@ -10,7 +10,8 @@ const (
 	maxSpeedRate        = 0.24
 	minCarCrashRate     = 0.066
 	maxCarCrashRate     = 0.33
-	amortizationRate    = 0.1
+	minAmortizationRate = 0.1
+	maxAmortizationRate = 0.3
 	numberRangeRate     = 6
 
 	// stage:
@@ -74,15 +75,17 @@ func (g *generator) generateCars(n int) []*car {
 
 		speedRate := g.betweenFloat(minSpeedRate, maxSpeedRate)
 		crashRate := g.betweenFloat(minCarCrashRate, maxCarCrashRate)
+		amortizationRate := g.betweenFloat(minAmortizationRate, maxAmortizationRate)
 
 		cars = append(cars, &car{
-			number:    number,
-			gen:       g,
-			driver:    driver,
-			codriver:  codriver,
-			speedRate: speedRate,
-			crashRate: crashRate,
-			condition: 1})
+			number:           number,
+			gen:              g,
+			driver:           driver,
+			codriver:         codriver,
+			speedRate:        speedRate,
+			crashRate:        crashRate,
+			amortizationRate: amortizationRate,
+			condition:        1})
 
 		n--
 	}

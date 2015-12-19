@@ -62,7 +62,6 @@ func (r *Race) start(c *car) {
 	t := r.timer.now()
 	r.startTimes[c.number] = t
 	r.reportStart(c, t)
-	println("start time", t)
 	go c.start(r)
 }
 

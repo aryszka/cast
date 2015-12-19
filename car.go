@@ -5,13 +5,14 @@ import "fmt"
 const carReportFormat = "measure-point.%d.car.%d.%s"
 
 type car struct {
-	number    int
-	gen       *generator
-	driver    string
-	codriver  string
-	speedRate float64
-	crashRate float64
-	condition float64
+	number           int
+	gen              *generator
+	driver           string
+	codriver         string
+	speedRate        float64
+	crashRate        float64
+	amortizationRate float64
+	condition        float64
 }
 
 func (c *car) report(mp *measurePoint, msg string, content interface{}) {
@@ -32,7 +33,7 @@ func (c *car) start(r *Race) {
 		stage = stage[1:]
 
 		crash := c.gen.rand.Float64()*c.condition < (c.crashRate/float64(len(r.stage))+measurePoint.difficulty)/2
-		c.condition -= amortizationRate * measurePoint.difficulty
+		c.condition -= c.gen.rand.Float64() * c.amortizationRate * measurePoint.difficulty
 
 		t := measurePoint.average +
 			c.gen.delta(measurePoint.average, 0, c.speedRate) +
