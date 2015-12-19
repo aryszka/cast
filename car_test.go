@@ -17,7 +17,7 @@ func TestCompletesWhenStageIsEmpty(t *testing.T) {
 	)
 
 	done := make(chan struct{})
-	r.Dispatcher.Subscribe(&Listener{func(m *Message) {
+	r.Dispatcher.Subscribe(&Listener{HandlerFunc(func(m *Message) {
 		if m.Key == fmt.Sprintf(finishFormat, c.number) {
 			if completeReceived {
 				t.Error("complete received twice")
@@ -44,7 +44,7 @@ func TestCompletesWhenStageIsEmpty(t *testing.T) {
 			t.Error("unexpected message")
 			close(done)
 		}
-	}})
+	})})
 
 	time.Sleep(15 * time.Millisecond)
 	go c.start(r)
@@ -71,13 +71,13 @@ func TestCarCrashes(t *testing.T) {
 	}
 
 	done := make(chan struct{})
-	r.Dispatcher.Subscribe(&Listener{func(m *Message) {
+	r.Dispatcher.Subscribe(&Listener{HandlerFunc(func(m *Message) {
 		if m.Key != fmt.Sprintf(carReportFormat, 1, c.number, "crash") {
 			t.Error("failed to report crash")
 		}
 
 		close(done)
-	}})
+	})})
 
 	time.Sleep(15 * time.Millisecond)
 	go c.start(r)
@@ -94,6 +94,7 @@ func TestCarGivesUp(t *testing.T) {
 	r := NewRace(10000)
 	c := r.gen.generateCars(1)[0]
 
+	r.stage = r.stage[:1]
 	c.crashRate = 0
 	c.condition = 0
 	for _, mp := range r.stage {
@@ -103,13 +104,13 @@ func TestCarGivesUp(t *testing.T) {
 	}
 
 	done := make(chan struct{})
-	r.Dispatcher.Subscribe(&Listener{func(m *Message) {
+	r.Dispatcher.Subscribe(&Listener{HandlerFunc(func(m *Message) {
 		if m.Key != fmt.Sprintf(carReportFormat, 1, c.number, "give-up") {
 			t.Error("failed to report give up", m.Key)
 		}
 
 		close(done)
-	}})
+	})})
 
 	time.Sleep(15 * time.Millisecond)
 	go c.start(r)
@@ -132,11 +133,11 @@ func TestCarFinishesRace(t *testing.T) {
 	}
 
 	done := make(chan struct{})
-	r.Dispatcher.Subscribe(&Listener{func(m *Message) {
+	r.Dispatcher.Subscribe(&Listener{HandlerFunc(func(m *Message) {
 		if m.Key == fmt.Sprintf(finishFormat, c.number) {
 			close(done)
 		}
-	}})
+	})})
 
 	time.Sleep(15 * time.Millisecond)
 	go c.start(r)
@@ -158,13 +159,13 @@ func TestReport(t *testing.T) {
 	c := &car{number: 42, condition: 0.66}
 	done := make(chan struct{})
 
-	l.Handler = func(m *Message) {
+	l.Handler = HandlerFunc(func(m *Message) {
 		if m.Key != fmt.Sprintf(carReportFormat, 36, 42, "crash") {
 			t.Error("failed to report crash")
 		}
 
 		close(done)
-	}
+	})
 
 	c.report(mp, "crash", "")
 	select {

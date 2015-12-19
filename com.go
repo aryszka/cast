@@ -9,6 +9,10 @@ type Connection interface {
 	Send(*Message)
 }
 
+type Handler interface {
+	Handle(*Message)
+}
+
 type network struct {
 	latency  int
 	strength float64
@@ -23,7 +27,7 @@ func (c *network) Send(m *Message) {
 	}
 
 	go func() {
-		c.timer.after(c.latency)
+		c.timer.wait(c.latency)
 		c.remote.Send(m)
 	}()
 }
@@ -36,7 +40,6 @@ type Dispatcher struct {
 func newDispatcher() *Dispatcher {
 	snd := make(chan *Message)
 	subscr := make(chan Connection)
-	d := &Dispatcher{snd, subscr}
 
 	go func() {
 		var connections []Connection
@@ -52,12 +55,16 @@ func newDispatcher() *Dispatcher {
 		}
 	}()
 
-	return d
+	return &Dispatcher{snd, subscr}
 }
 
 func (d *Dispatcher) Send(m *Message)        { go func() { d.snd <- m }() }
 func (d *Dispatcher) Subscribe(c Connection) { go func() { d.subscr <- c }() }
 
-type Listener struct{ Handler func(m *Message) }
+type Listener struct{ Handler Handler }
 
-func (l *Listener) Send(m *Message) { go l.Handler(m) }
+func (l *Listener) Send(m *Message) { go l.Handler.Handle(m) }
+
+type HandlerFunc func(m *Message)
+
+func (hf HandlerFunc) Handle(m *Message) { hf(m) }

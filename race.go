@@ -1,9 +1,6 @@
 package cast
 
-import (
-	"fmt"
-	"strconv"
-)
+import "fmt"
 
 const (
 	startFormat  = "car.%d.start"
@@ -46,26 +43,34 @@ func NewRace(timeRate float64) *Race {
 		cars:       c}
 }
 
-func (r *Race) reportStart(c *car) {
-	r.Dispatcher.Send(&Message{Key: fmt.Sprintf(startFormat, c.number)})
+func (r *Race) sendFormat(content interface{}, format string, args ...interface{}) {
+	r.Dispatcher.Send(&Message{
+		Key:     fmt.Sprintf(format, args...),
+		Content: fmt.Sprint(content)})
 }
 
-func (r *Race) reportComplete(c *car, t int) {
-	r.Dispatcher.Send(&Message{Key: fmt.Sprintf(finishFormat, c.number)})
-	r.Dispatcher.Send(&Message{
-		Key:     fmt.Sprintf(totalFormat, c.number),
-		Content: strconv.Itoa(t)})
+func (r *Race) reportStart(c *car, t int) {
+	r.sendFormat(t, startFormat, c.number)
+}
+
+func (r *Race) reportComplete(c *car, t, dt int) {
+	r.sendFormat(t, finishFormat, c.number)
+	r.sendFormat(dt, totalFormat, c.number)
 }
 
 func (r *Race) start(c *car) {
-	r.startTimes[c.number] = r.timer.now()
-	r.reportStart(c)
+	t := r.timer.now()
+	r.startTimes[c.number] = t
+	r.reportStart(c, t)
+	println("start time", t)
 	go c.start(r)
 }
 
 func (r *Race) finish(c *car) {
-	t := r.timer.now() - r.startTimes[c.number]
-	r.reportComplete(c, t)
+	n := r.timer.now()
+	t := r.startTimes[c.number]
+	dt := n - t
+	r.reportComplete(c, n, dt)
 }
 
 func (r *Race) Start() {
@@ -73,11 +78,10 @@ func (r *Race) Start() {
 	var started bool
 	for _, c := range r.cars {
 		if started {
-			r.timer.after(startDelta)
+			r.timer.wait(startDelta)
 		}
 
 		r.start(c)
+		started = true
 	}
-
-	<-make(chan struct{})
 }

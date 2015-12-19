@@ -15,6 +15,6 @@ func (t *timer) now() int {
 	return int(float64(time.Now().Sub(t.start)/time.Millisecond) * t.timeRate)
 }
 
-func (t *timer) after(dt int) {
-	time.Sleep(time.Duration(float64(dt)/t.timeRate) * time.Millisecond)
+func (t *timer) wait(dt int) {
+	<-time.After(time.Duration(float64(dt)/t.timeRate) * time.Millisecond)
 }

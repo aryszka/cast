@@ -9,7 +9,7 @@ func TestDispatcher(t *testing.T) {
 	d := newDispatcher()
 	done := make(chan struct{})
 	var r1, r2 bool
-	d.Subscribe(&Listener{func(m *Message) {
+	d.Subscribe(&Listener{HandlerFunc(func(m *Message) {
 		if m.Key != "test" {
 			t.Error("invalid message")
 			done <- struct{}{}
@@ -19,8 +19,8 @@ func TestDispatcher(t *testing.T) {
 		if r2 {
 			done <- struct{}{}
 		}
-	}})
-	d.Subscribe(&Listener{func(m *Message) {
+	})})
+	d.Subscribe(&Listener{HandlerFunc(func(m *Message) {
 		if m.Key != "test" {
 			t.Error("invalid message")
 			done <- struct{}{}
@@ -30,7 +30,7 @@ func TestDispatcher(t *testing.T) {
 		if r1 {
 			done <- struct{}{}
 		}
-	}})
+	})})
 	time.Sleep(15 * time.Millisecond)
 	d.Send(&Message{Key: "test"})
 	for {
@@ -50,9 +50,9 @@ func TestNetworkFails(t *testing.T) {
 		strength: 0,
 		timer:    newTimer(1),
 		gen:      newGenerator(0),
-		remote: &Listener{func(m *Message) {
+		remote: &Listener{HandlerFunc(func(m *Message) {
 			t.Error("unexpected message")
-		}}}
+		})}}
 	c.Send(&Message{Key: "test"})
 	<-time.After(15 * time.Millisecond)
 }
@@ -64,13 +64,13 @@ func TestConnectionSend(t *testing.T) {
 		strength: 1,
 		timer:    newTimer(1),
 		gen:      newGenerator(0),
-		remote: &Listener{func(m *Message) {
+		remote: &Listener{HandlerFunc(func(m *Message) {
 			if m.Key != "test" {
 				t.Error("failed to send message")
 			}
 
 			done <- struct{}{}
-		}}}
+		})}}
 	time.Sleep(15 * time.Millisecond)
 	c.Send(&Message{Key: "test"})
 	select {

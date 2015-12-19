@@ -21,13 +21,13 @@ func (c *car) report(mp *measurePoint, msg string, content interface{}) {
 }
 
 func (c *car) start(r *Race) {
-	if len(r.stage) == 0 {
-		r.finish(c)
-		return
-	}
-
 	stage := r.stage
 	for {
+		if len(stage) == 0 {
+			r.finish(c)
+			return
+		}
+
 		measurePoint := stage[0]
 		stage = stage[1:]
 
@@ -37,7 +37,7 @@ func (c *car) start(r *Race) {
 		t := measurePoint.average +
 			c.gen.delta(measurePoint.average, 0, c.speedRate) +
 			c.gen.delta(measurePoint.average, standardMinTimeRate, standardMaxTimeRate)
-		r.timer.after(t)
+		r.timer.wait(t)
 
 		if crash {
 			c.report(measurePoint, "crash", "")
@@ -49,13 +49,10 @@ func (c *car) start(r *Race) {
 			return
 		}
 
-		if len(stage) > 0 {
-			c.report(measurePoint, "pass", "")
-			c.report(measurePoint, "condition", c.condition)
-			continue
-		}
+		c.report(measurePoint, "condition", c.condition)
 
-		r.finish(c)
-		return
+		if len(stage) > 0 {
+			c.report(measurePoint, "pass", r.timer.now())
+		}
 	}
 }
