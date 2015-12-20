@@ -4,8 +4,6 @@ import "math/rand"
 
 const (
 	// cars:
-	standardMinTimeRate = -0.12
-	standardMaxTimeRate = 0.12
 	minSpeedRate        = -0.24
 	maxSpeedRate        = 0.24
 	minCarCrashRate     = 0.066
@@ -15,16 +13,16 @@ const (
 	numberRangeRate     = 6
 
 	// stage:
-	minStageAverage      = 1200000
-	maxStageAverage      = 1500000
-	minMeasurePoint      = 30000
-	maxMeasurePoint      = 90000
-	minSectionDifficulty = 0.066
-	maxSectionDifficulty = 0.33
-	minNetworkLatency    = 12
-	maxNetworkLatency    = 300
-	minNetworkStrength   = 0.66
-	maxNetworkStrength   = 0.99
+	minMeasurePoint           = 30000
+	maxMeasurePoint           = 90000
+	minSectionDifficulty      = 0.066
+	maxSectionDifficulty      = 0.33
+	minNetworkLatency         = 12
+	maxNetworkLatency         = 300
+	minNetworkStrength        = 0.66
+	maxNetworkStrength        = 0.99
+	minMarkerReceiverStrength = 0.45
+	maxMarkerReceiverStrength = 0.72
 )
 
 type generator struct{ rand *rand.Rand }
@@ -43,6 +41,11 @@ func (g *generator) betweenFloat(min, max float64) float64 {
 
 func (g *generator) delta(of int, minRate, maxRate float64) int {
 	return int(float64(of) * g.betweenFloat(minRate, maxRate))
+}
+
+func (g *generator) name(names []string) (string, []string) {
+	i := g.rand.Intn(len(names))
+	return names[i], append(names[:i], names[i+1:]...)
 }
 
 func (g *generator) generateCars(n int) []*car {
@@ -65,13 +68,9 @@ func (g *generator) generateCars(n int) []*car {
 		}
 		takenNumbers[number] = true
 
-		ni := g.rand.Intn(len(names))
-		driver := names[ni]
-		names = append(names[:ni], names[ni+1:]...)
-
-		ni = g.rand.Intn(len(names))
-		codriver := names[ni]
-		names = append(names[:ni], names[ni+1:]...)
+		var driver, codriver string
+		driver, names = g.name(names)
+		codriver, names = g.name(names)
 
 		speedRate := g.betweenFloat(minSpeedRate, maxSpeedRate)
 		crashRate := g.betweenFloat(minCarCrashRate, maxCarCrashRate)
@@ -91,29 +90,31 @@ func (g *generator) generateCars(n int) []*car {
 	}
 }
 
-func (g *generator) createStage(t *timer, d *Dispatcher) stage {
-	var s stage
-	desired := g.between(minStageAverage, maxStageAverage)
+func (g *generator) createStage(desiredLength int) []*marker {
+	var s []*marker
 	total := 0
 	counter := 0
 	for {
-		if total >= desired {
+		if total >= desiredLength {
 			break
 		}
 
-		mp := &measurePoint{number: counter + 1}
-		s = append(s, mp)
+		number := counter + 1
+		average := g.between(minMeasurePoint, maxMeasurePoint)
+		difficulty := g.betweenFloat(minSectionDifficulty, maxSectionDifficulty)
+		networkLatency := g.between(minNetworkLatency, maxNetworkLatency)
+		networkStrength := g.betweenFloat(minNetworkStrength, maxNetworkStrength)
+		receiverStrength := g.betweenFloat(minMarkerReceiverStrength, maxMarkerReceiverStrength)
 
-		mp.average = g.between(minMeasurePoint, maxMeasurePoint)
-		mp.difficulty = g.betweenFloat(minSectionDifficulty, maxSectionDifficulty)
-		mp.radio = &network{
-			latency:  g.between(minNetworkLatency, maxNetworkLatency),
-			strength: g.betweenFloat(minNetworkStrength, maxNetworkStrength),
-			timer:    t,
-			gen:      g,
-			remote:   d}
+		s = append(s, &marker{
+			number:           number,
+			average:          average,
+			difficulty:       difficulty,
+			networkLatency:   networkLatency,
+			networkStrength:  networkStrength,
+			receiverStrength: receiverStrength})
 
-		total += mp.average
+		total += average
 		counter++
 	}
 

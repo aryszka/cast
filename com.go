@@ -9,8 +9,12 @@ type Connection interface {
 	Send(*Message)
 }
 
-type Handler interface {
-	Handle(*Message)
+var Disconnected = &Message{}
+
+type Receiver chan<- *Message
+
+func (r Receiver) Send(m *Message) {
+	go func() { r <- m }()
 }
 
 type network struct {
@@ -21,25 +25,29 @@ type network struct {
 	remote   Connection
 }
 
-func (c *network) Send(m *Message) {
-	if c.gen.rand.Float64() > c.strength {
-		return
-	}
-
+func (nw *network) Send(m *Message) {
 	go func() {
-		c.timer.wait(c.latency)
-		c.remote.Send(m)
+		if nw.gen.rand.Float64() > nw.strength {
+			return
+		}
+
+		<-nw.timer.after(nw.latency)
+		nw.remote.Send(m)
 	}()
 }
 
 type Dispatcher struct {
-	snd    chan *Message
-	subscr chan Connection
+	snd      chan *Message
+	subscr   chan Connection
+	unsubscr chan Connection
+	close    chan struct{}
 }
 
 func newDispatcher() *Dispatcher {
 	snd := make(chan *Message)
 	subscr := make(chan Connection)
+	unsubscr := make(chan Connection)
+	close := make(chan struct{})
 
 	go func() {
 		var connections []Connection
@@ -51,20 +59,36 @@ func newDispatcher() *Dispatcher {
 				}
 			case c := <-subscr:
 				connections = append(connections, c)
+			case c := <-unsubscr:
+				for i, conn := range connections {
+					if conn == c {
+						connections = append(connections[:i], connections[i+1:]...)
+						break
+					}
+				}
+
+				go func() { c.Send(Disconnected) }()
+			case <-close:
+				return
 			}
 		}
 	}()
 
-	return &Dispatcher{snd, subscr}
+	return &Dispatcher{snd, subscr, unsubscr, close}
 }
 
-func (d *Dispatcher) Send(m *Message)        { go func() { d.snd <- m }() }
-func (d *Dispatcher) Subscribe(c Connection) { go func() { d.subscr <- c }() }
+func (d *Dispatcher) Send(m *Message) {
+	go func() { d.snd <- m }()
+}
 
-type Listener struct{ Handler Handler }
+func (d *Dispatcher) Subscribe(c Connection) {
+	go func() { d.subscr <- c }()
+}
 
-func (l *Listener) Send(m *Message) { go l.Handler.Handle(m) }
+func (d *Dispatcher) Unsubscribe(c Connection) {
+	go func() { d.unsubscr <- c }()
+}
 
-type HandlerFunc func(m *Message)
-
-func (hf HandlerFunc) Handle(m *Message) { hf(m) }
+func (d *Dispatcher) Close() {
+	close(d.close)
+}
