@@ -102,14 +102,6 @@ func (c *car) raceOverOrContinue() bool {
 	return false
 }
 
-func (c *car) waitForRaceOver() {
-	for {
-		if c.messageOf(<-c.visual, "race-over") {
-			return
-		}
-	}
-}
-
 func (c *car) crash(stageLength int, m *marker) bool {
 	chanceToContinue := c.gen.rand.Float64() * c.condition
 	carCrashRate := c.crashRate / float64(stageLength)
@@ -126,11 +118,6 @@ func (c *car) raceToMarker(m *marker) {
 	environmentEffect := c.gen.delta(m.average,
 		environmentMinTimeRate, environmentMaxTimeRate)
 	<-c.timer.after(m.average + carEffect + environmentEffect)
-}
-
-func (c *car) getDisqualified(m *marker, typ string) {
-	c.markerTransmit(m, typ)
-	c.waitForRaceOver()
 }
 
 func (c *car) race() {
@@ -151,13 +138,13 @@ func (c *car) race() {
 		c.raceToMarker(marker)
 
 		if crash {
-			c.getDisqualified(marker, "crash")
+			c.markerTransmit(marker, "crash")
 			c.goToSafe()
 			return
 		}
 
 		if c.condition <= 0 {
-			c.getDisqualified(marker, "give-up")
+			c.markerTransmit(marker, "give-up")
 			c.goToSafe()
 			return
 		}

@@ -7,17 +7,9 @@ import (
 )
 
 const (
-	startFormat              = "car.%d.start"
-	finishFormat             = "car.%d.finish"
-	totalFormat              = "car.%d.total"
-	disqualifiedFormat       = "car.%d.disqualified"
-	finalMesasge             = "race.final"
+	carStartLineTimeout      = 15000
 	carStartTimeout          = 60000
 	maxTotalTimeRate         = 1.5
-	minCars                  = 18
-	maxCars                  = 36
-	minStageAverage          = 1200000
-	maxStageAverage          = 1500000
 	raceStartMessage         = "race.start"
 	raceCloseMessage         = "race.close"
 	marshalServiceInfoFormat = "marshal.%s"
@@ -34,11 +26,11 @@ type carResult struct {
 }
 
 func (cr carResult) ready() bool {
-	return !(cr.started || cr.finished || cr.disqualified || cr.safe)
+	return !(cr.started || cr.finished || cr.disqualified)
 }
 
 func (cr carResult) racing() bool {
-	return cr.started && !cr.finished && !cr.disqualified && !cr.safe
+	return cr.started && !cr.finished && !cr.disqualified
 }
 
 func (cr carResult) setStarted(t int) carResult {
@@ -78,12 +70,11 @@ type marshal struct {
 	maxTotalTime     int
 	markers          []*marker
 	cars             map[int]carResult
-
-	vcontactIn     chan Connection
-	vcontactOut    chan Connection
-	carVisuals     *Dispatcher
-	fieldVisual    chan *Message
-	lastCarTimeout <-chan struct{}
+	vcontactIn       chan Connection
+	vcontactOut      chan Connection
+	carVisuals       *Dispatcher
+	fieldVisual      chan *Message
+	lastCarTimeout   <-chan struct{}
 }
 
 func (m *marshal) simulate(t *timer, d *Dispatcher, stage []*marker) {
@@ -178,6 +169,16 @@ func (m *marshal) allSafe() bool {
 	return true
 }
 
+func (m *marshal) allFinishedOrSafe() bool {
+	for _, cr := range m.cars {
+		if !cr.safe && !cr.finished {
+			return false
+		}
+	}
+
+	return true
+}
+
 func (m *marshal) waitForAllSafe() {
 	for {
 		if m.allSafe() {
@@ -217,7 +218,7 @@ func (m *marshal) waitForCarsRegistered() bool {
 func (m *marshal) startCar(number int) (int, bool) {
 	for {
 		select {
-		case <-m.timer.after(carStartTimeout):
+		case <-m.timer.after(carStartLineTimeout):
 			m.messageToCar(number, "race-over")
 			return -1, false
 		case msg := <-m.fieldVisual:
@@ -248,13 +249,20 @@ func (m *marshal) startRace() bool {
 			m.cars[number] = m.cars[number].setStarted(carStarted)
 			m.dispatchCarInfo(number, "started", carStarted)
 		}
+
+		<-m.timer.after(carStartTimeout)
 	}
 
-	m.lastCarTimeout = m.timer.after(m.maxTotalTime)
+	lct := m.maxTotalTime - carStartTimeout
+	if lct < 0 {
+		lct = 0
+	}
+
+	m.lastCarTimeout = m.timer.after(lct)
 	return true
 }
 
-func (m *marshal) disqualifyRacingCars() {
+func (m *marshal) disqualifySlowCars() {
 	var racing []int
 	for number, cr := range m.cars {
 		if cr.racing() {
@@ -263,22 +271,18 @@ func (m *marshal) disqualifyRacingCars() {
 	}
 
 	for _, number := range racing {
-		m.cars[number].setDisqualified()
+		m.cars[number] = m.cars[number].setDisqualified()
 	}
-
-	m.sendRaceOver()
 }
 
 func (m *marshal) carFinished(number, t int) {
 	cr, ok := m.cars[number]
 	if ok && t-cr.startTime <= m.maxTotalTime {
 		m.cars[number] = cr.setFinished(t)
+		m.dispatchCarInfo(number, "finished", t)
 	} else {
 		m.cars[number] = cr.setDisqualified()
-	}
-
-	if m.cars[number].finished {
-		m.dispatchCarInfo(number, "finished", t)
+		m.dispatchCarInfo(number, "disqualified", t)
 	}
 }
 
@@ -286,7 +290,8 @@ func (m *marshal) waitForCarsFinish() bool {
 	for {
 		select {
 		case <-m.lastCarTimeout:
-			m.disqualifyRacingCars()
+			m.disqualifySlowCars()
+			m.sendRaceOver()
 		case msg := <-m.fieldVisual:
 			if number, ok := carSeenAt(msg, "finish-line"); ok {
 				m.carFinished(number, m.timer.now())
@@ -294,7 +299,7 @@ func (m *marshal) waitForCarsFinish() bool {
 				m.cars[number] = m.cars[number].setSafe()
 			}
 
-			if m.allSafe() {
+			if m.allFinishedOrSafe() {
 				return true
 			}
 		case msg := <-m.intercomReceiver:

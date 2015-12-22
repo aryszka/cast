@@ -1,6 +1,11 @@
 package cast
 
-const ()
+const (
+	minStageAverage = 1200000
+	maxStageAverage = 1500000
+	minCars         = 18
+	maxCars         = 36
+)
 
 type Race struct {
 	gen        *generator
