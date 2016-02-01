@@ -1,4 +1,4 @@
-package cast
+package rally
 
 type (
 	Message struct {
@@ -8,17 +8,17 @@ type (
 
 	Sender interface {
 		Send() chan<- *Message
-        Close()
+		Close()
 	}
 
 	Receiver interface {
 		Receive() <-chan *Message
 	}
 
-    Connection interface {
-        Sender
-        Receiver
-    }
+	Connection interface {
+		Sender
+		Receiver
+	}
 
 	ChanSender   chan<- *Message
 	ChanReceiver <-chan *Message
@@ -111,7 +111,7 @@ func NewRepeater(s Sender, r Receiver) *Repeater {
 					return
 				}
 
-                send = nil
+				send = nil
 			} else {
 				m = all.front()
 				send = s.Send()

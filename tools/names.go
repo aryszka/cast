@@ -10,7 +10,7 @@ import (
 
 func main() {
 	fmt.Print(`
-        package cast
+        package rally
 
         // generated names
         var randomNames []string = []string{

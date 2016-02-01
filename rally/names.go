@@ -1,4 +1,4 @@
-package cast
+package rally
 
 // generated names
 var randomNames []string = []string{
