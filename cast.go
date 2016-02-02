@@ -92,7 +92,6 @@ type Opt struct {
 
 var (
 	ErrDisconnected = errors.New("disconnected")
-	ErrNodeClosed   = errors.New("node closed")
 	ErrCannotListen = errors.New("node cannot listen")
 )
 
@@ -155,8 +154,7 @@ func NewNode(o Opt) Node {
 		opt:    o,
 		listen: make(chan listen),
 		join:   make(chan join),
-		errors: make(chan error, o.ErrorBuffer),
-		close:  make(chan struct{})}
+		errors: make(chan error, o.ErrorBuffer)}
 
 	s := newBufferedConnection(o.SendBuffer, o.SendTimeout)
 	n.send = s.Send()
@@ -297,7 +295,7 @@ func (n *node) closeNode() {
 		n.parentReceive = nil
 	}
 
-	n.errors <- ErrNodeClosed
+	close(n.receiver)
 	n.disconnectAllChildren()
 }
 
@@ -312,7 +310,12 @@ func (n *node) run() {
 			n.removeChildConnection(c)
 		case jm := <-n.join:
 			n.joinNetwork(jm.connection, jm.err)
-		case m := <-n.sender:
+		case m, open := <-n.sender:
+			if !open {
+				n.closeNode()
+				return
+			}
+
 			n.sendMessage(m)
 		case m, open := <-n.parentReceive:
 			if !open {
@@ -325,37 +328,26 @@ func (n *node) run() {
 			if isPayload(im.message.Key) {
 				n.forwardMessage(im.message, false, im.connection)
 			}
-		case <-n.close:
-			n.closeNode()
-			return
 		}
 	}
 }
 
 func (n *node) Listen(l Listener) error {
 	ec := make(chan error)
-	select {
-	case <-n.close:
-		return ErrNodeClosed
-	case n.listen <- listen{l, ec}:
-		return <-ec
-	}
+	n.listen <- listen{l, ec}
+	return <-ec
 }
 
 func (n *node) Join(c Connection) error {
 	ec := make(chan error)
-	select {
-	case <-n.close:
-		return ErrNodeClosed
-	case n.join <- join{c, ec}:
-		return <-ec
-	}
+	n.join <- join{c, ec}
+	return <-ec
 }
 
 func (n *node) Send() chan<- *Message    { return n.send }
 func (n *node) Receive() <-chan *Message { return n.receive }
 func (n *node) Errors() <-chan error     { return n.errors }
-func (n *node) Close()                   { close(n.close) }
+func (n *node) Close()                   { close(n.send) }
 
 func createNode(label string) Node {
 	n := NewNode(Opt{})
@@ -390,14 +382,13 @@ func sendHelloWorld(n Node, label string) {
 }
 
 func closeAll(n ...Node) {
-	closed := make(chan error)
+	closed := make(chan struct{})
 	for _, ni := range n {
 		go func(n Node) {
 			for {
-				err := <-n.Errors()
-				if err == ErrNodeClosed {
-					closed <- err
-					return
+				_, open := <-n.Receive()
+				if !open {
+					closed <- struct{}{}
 				}
 			}
 		}(ni)
