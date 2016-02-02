@@ -36,13 +36,13 @@ type Node interface {
 type messageChannel chan *Message
 
 type buffer struct {
-    send chan *Message
-    connection Connection
+	send       chan *Message
+	connection Connection
 }
 
 type inProcConnection struct {
-    local chan *Message
-    remote *inProcConnection
+	local  chan *Message
+	remote *inProcConnection
 }
 
 type listen struct {
@@ -61,33 +61,33 @@ type incoming struct {
 }
 
 type node struct {
-    opt Opt
-	listen             chan listen
-	listener           Listener
-	childConnections   []Connection
-	removeConnection   chan Connection
-	join               chan join
-	parentConnection   Connection
-	send               chan<- *Message
-	sender               <-chan *Message
-	parentReceive      <-chan *Message
-	childReceive       chan incoming
-	receive            <-chan *Message
-	receiver            chan<- *Message
-	errors             chan error
-	close              chan struct{}
+	opt              Opt
+	listen           chan listen
+	listener         Listener
+	childConnections []Connection
+	removeConnection chan Connection
+	join             chan join
+	parentConnection Connection
+	send             chan<- *Message
+	sender           <-chan *Message
+	parentReceive    <-chan *Message
+	childReceive     chan incoming
+	receive          <-chan *Message
+	receiver         chan<- *Message
+	errors           chan error
+	close            chan struct{}
 }
 
 type Opt struct {
-    ParentTimeout time.Duration
-    ChildTimeout time.Duration
-    SendTimeout time.Duration
-    ReceiveTimeout time.Duration
-    ParentBuffer int
-    ChildBuffer int
-    SendBuffer int
-    ReceiveBuffer int
-    ErrorBuffer int
+	ParentTimeout  time.Duration
+	ChildTimeout   time.Duration
+	SendTimeout    time.Duration
+	ReceiveTimeout time.Duration
+	ParentBuffer   int
+	ChildBuffer    int
+	SendBuffer     int
+	ReceiveBuffer  int
+	ErrorBuffer    int
 }
 
 var (
@@ -96,45 +96,45 @@ var (
 	ErrCannotListen = errors.New("node cannot listen")
 )
 
-func (c messageChannel) Send() chan<- *Message { return c }
+func (c messageChannel) Send() chan<- *Message    { return c }
 func (c messageChannel) Receive() <-chan *Message { return c }
-func (c messageChannel) Close() { close(c) }
+func (c messageChannel) Close()                   { close(c) }
 
 func newBuffer(c Connection, size int, timeout time.Duration) Connection {
-    send := make(chan *Message, size)
-    go func() {
-        for {
-            m, open := <-send
-            if !open {
-                c.Close()
-                return
-            }
+	send := make(chan *Message, size)
+	go func() {
+		for {
+			m, open := <-send
+			if !open {
+				c.Close()
+				return
+			}
 
-            if timeout <= 0 {
-                c.Send() <- m
-                return
-            }
+			if timeout <= 0 {
+				c.Send() <- m
+				return
+			}
 
-            select {
-            case c.Send() <- m:
-            case <-time.After(timeout):
-            }
-        }
-    }()
+			select {
+			case c.Send() <- m:
+			case <-time.After(timeout):
+			}
+		}
+	}()
 
-    return &buffer{send, c}
+	return &buffer{send, c}
 }
 
-func (b *buffer) Send() chan<- *Message { return b.send }
+func (b *buffer) Send() chan<- *Message    { return b.send }
 func (b *buffer) Receive() <-chan *Message { return b.connection.Receive() }
-func (b *buffer) Close() { close(b.send) }
+func (b *buffer) Close()                   { close(b.send) }
 
 func newBufferedConnection(size int, timeout time.Duration) Connection {
-    if timeout <= 0 {
-        return make(messageChannel, size)
-    }
+	if timeout <= 0 {
+		return make(messageChannel, size)
+	}
 
-    return newBuffer(make(messageChannel), size, timeout)
+	return newBuffer(make(messageChannel), size, timeout)
 }
 
 func newInProcConnection(l chan Connection) Connection {
@@ -146,25 +146,25 @@ func newInProcConnection(l chan Connection) Connection {
 	return local
 }
 
-func (c *inProcConnection) Send() chan<- *Message { return c.local }
+func (c *inProcConnection) Send() chan<- *Message    { return c.local }
 func (c *inProcConnection) Receive() <-chan *Message { return c.remote.local }
-func (c *inProcConnection) Close() { close(c.local) }
+func (c *inProcConnection) Close()                   { close(c.local) }
 
 func NewNode(o Opt) Node {
 	n := &node{
-        opt: o,
-		listen:  make(chan listen),
-		join:    make(chan join),
-		errors:  make(chan error, o.ErrorBuffer),
-		close:   make(chan struct{})}
+		opt:    o,
+		listen: make(chan listen),
+		join:   make(chan join),
+		errors: make(chan error, o.ErrorBuffer),
+		close:  make(chan struct{})}
 
-    s := newBufferedConnection(o.SendBuffer, o.SendTimeout)
-    n.send = s.Send()
-    n.sender = s.Receive()
+	s := newBufferedConnection(o.SendBuffer, o.SendTimeout)
+	n.send = s.Send()
+	n.sender = s.Receive()
 
-    r := newBufferedConnection(o.ReceiveBuffer, o.ReceiveTimeout)
-    n.receive = r.Receive()
-    n.receiver = r.Send()
+	r := newBufferedConnection(o.ReceiveBuffer, o.ReceiveTimeout)
+	n.receive = r.Receive()
+	n.receiver = r.Send()
 
 	go n.run()
 	return n
@@ -189,27 +189,27 @@ func isPayload(key []string) bool {
 func (n *node) watchChildConnection(c Connection) {
 	for {
 		m, open := <-c.Receive()
-        switch {
-        case !open:
-            n.removeConnection <- c
-            return
-        default:
-            n.childReceive <- incoming{m, c}
-        }
+		switch {
+		case !open:
+			n.removeConnection <- c
+			return
+		default:
+			n.childReceive <- incoming{m, c}
+		}
 	}
 }
 
 func (n *node) addChildConnection(c Connection) {
-    if n.opt.ChildBuffer > 0 || n.opt.ChildTimeout > 0 {
-        c = newBuffer(c, n.opt.ChildBuffer, n.opt.ChildTimeout)
-    }
+	if n.opt.ChildBuffer > 0 || n.opt.ChildTimeout > 0 {
+		c = newBuffer(c, n.opt.ChildBuffer, n.opt.ChildTimeout)
+	}
 
 	n.childConnections = append(n.childConnections, c)
 	go n.watchChildConnection(c)
 }
 
 func (n *node) removeChildConnection(c Connection) {
-    c.Close()
+	c.Close()
 	cc := n.childConnections
 	for i, ci := range cc {
 		if ci == c {
@@ -226,9 +226,9 @@ func (n *node) joinNetwork(c Connection, ec chan error) {
 		pc.Close()
 	}
 
-    if n.opt.ParentBuffer > 0 || n.opt.ParentTimeout > 0 {
-        c = newBuffer(c, n.opt.ParentBuffer, n.opt.ParentTimeout)
-    }
+	if n.opt.ParentBuffer > 0 || n.opt.ParentTimeout > 0 {
+		c = newBuffer(c, n.opt.ParentBuffer, n.opt.ParentTimeout)
+	}
 
 	n.parentConnection = c
 	n.parentReceive = c.Receive()
@@ -242,7 +242,7 @@ func (n *node) parentMessage(m *Message) {
 }
 
 func sendTo(c Connection, m *Message) {
-    c.Send() <- m
+	c.Send() <- m
 }
 
 func (n *node) forwardMessage(m *Message, skipNode bool, skipConnections ...Connection) {
@@ -288,13 +288,13 @@ func (n *node) disconnectAllChildren() {
 		c.Close()
 	}
 
-    n.childConnections = nil
+	n.childConnections = nil
 }
 
 func (n *node) closeNode() {
 	if n.parentConnection != nil {
 		n.parentConnection.Close()
-        n.parentReceive = nil
+		n.parentReceive = nil
 	}
 
 	n.errors <- ErrNodeClosed
@@ -315,16 +315,16 @@ func (n *node) run() {
 		case m := <-n.sender:
 			n.sendMessage(m)
 		case m, open := <-n.parentReceive:
-            if !open {
-                n.errors <- ErrDisconnected
-                n.parentReceive = nil
-            } else {
-                n.parentMessage(m)
-            }
+			if !open {
+				n.errors <- ErrDisconnected
+				n.parentReceive = nil
+			} else {
+				n.parentMessage(m)
+			}
 		case im := <-n.childReceive:
-            if isPayload(im.message.Key) {
-                n.forwardMessage(im.message, false, im.connection)
-            }
+			if isPayload(im.message.Key) {
+				n.forwardMessage(im.message, false, im.connection)
+			}
 		case <-n.close:
 			n.closeNode()
 			return
@@ -352,10 +352,10 @@ func (n *node) Join(c Connection) error {
 	}
 }
 
-func (n *node) Send() chan<- *Message { return n.send }
+func (n *node) Send() chan<- *Message    { return n.send }
 func (n *node) Receive() <-chan *Message { return n.receive }
-func (n *node) Errors() <-chan error { return n.errors }
-func (n *node) Close() { close(n.close) }
+func (n *node) Errors() <-chan error     { return n.errors }
+func (n *node) Close()                   { close(n.close) }
 
 func createNode(label string) Node {
 	n := NewNode(Opt{})
