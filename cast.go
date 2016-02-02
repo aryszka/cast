@@ -9,20 +9,17 @@ import (
 )
 
 const (
-	joinTimeout   = time.Second
 	castPrefix    = "cast"
 	messagePrefix = "message"
-	joinTag       = "join"
 	acceptTag     = "accept"
 )
 
 type Message keyval.Entry
 
 type Connection interface {
-	Send(*Message) error
+	Send() chan<- *Message
 	Receive() <-chan *Message
-	Disconnect()
-	Disconnected() <-chan struct{}
+	Close()
 }
 
 type Listener <-chan Connection
@@ -30,16 +27,22 @@ type Listener <-chan Connection
 type Node interface {
 	Listen(Listener) error
 	Join(Connection) error
-	Send(*Message)
+	Send() chan<- *Message
 	Receive() <-chan *Message
 	Errors() <-chan error
 	Close()
 }
 
+type messageChannel chan *Message
+
+type buffer struct {
+    send chan *Message
+    connection Connection
+}
+
 type inProcConnection struct {
-	receiver     chan *Message
-	remote       *inProcConnection
-	disconnected chan struct{}
+    local chan *Message
+    remote *inProcConnection
 }
 
 type listen struct {
@@ -58,74 +61,111 @@ type incoming struct {
 }
 
 type node struct {
+    opt Opt
 	listen             chan listen
 	listener           Listener
 	childConnections   []Connection
 	removeConnection   chan Connection
 	join               chan join
 	parentConnection   Connection
-	parentDisconnected <-chan struct{}
-	send               chan *Message
+	send               chan<- *Message
+	sender               <-chan *Message
 	parentReceive      <-chan *Message
 	childReceive       chan incoming
-	receive            chan *Message
+	receive            <-chan *Message
+	receiver            chan<- *Message
 	errors             chan error
 	close              chan struct{}
 }
 
-var (
-	keyJoin       = []string{castPrefix, joinTag}
-	keyJoinAccept = []string{castPrefix, joinTag, acceptTag}
-
-	msgJoin       = &Message{Key: keyJoin}
-	msgJoinAccept = &Message{Key: keyJoinAccept}
-)
+type Opt struct {
+    ParentTimeout time.Duration
+    ChildTimeout time.Duration
+    SendTimeout time.Duration
+    ReceiveTimeout time.Duration
+    ParentBuffer int
+    ChildBuffer int
+    SendBuffer int
+    ReceiveBuffer int
+    ErrorBuffer int
+}
 
 var (
 	ErrDisconnected = errors.New("disconnected")
-	ErrJoinTimeout  = errors.New("join timeout")
 	ErrNodeClosed   = errors.New("node closed")
 	ErrCannotListen = errors.New("node cannot listen")
 )
 
-func newInProcConnection(l chan Connection) *inProcConnection {
-	local := &inProcConnection{receiver: make(chan *Message), disconnected: make(chan struct{})}
-	remote := &inProcConnection{receiver: make(chan *Message), disconnected: make(chan struct{})}
+func (c messageChannel) Send() chan<- *Message { return c }
+func (c messageChannel) Receive() <-chan *Message { return c }
+func (c messageChannel) Close() { close(c) }
+
+func newBuffer(c Connection, size int, timeout time.Duration) Connection {
+    send := make(chan *Message, size)
+    go func() {
+        for {
+            m, open := <-send
+            if !open {
+                c.Close()
+                return
+            }
+
+            if timeout <= 0 {
+                c.Send() <- m
+                return
+            }
+
+            select {
+            case c.Send() <- m:
+            case <-time.After(timeout):
+            }
+        }
+    }()
+
+    return &buffer{send, c}
+}
+
+func (b *buffer) Send() chan<- *Message { return b.send }
+func (b *buffer) Receive() <-chan *Message { return b.connection.Receive() }
+func (b *buffer) Close() { close(b.send) }
+
+func newBufferedConnection(size int, timeout time.Duration) Connection {
+    if timeout <= 0 {
+        return make(messageChannel, size)
+    }
+
+    return newBuffer(make(messageChannel), size, timeout)
+}
+
+func newInProcConnection(l chan Connection) Connection {
+	local := &inProcConnection{local: make(chan *Message)}
+	remote := &inProcConnection{local: make(chan *Message)}
 	local.remote = remote
 	remote.remote = local
 	l <- remote
 	return local
 }
 
-func (c *inProcConnection) Send(m *Message) error {
-	select {
-	case <-c.disconnected:
-		return ErrDisconnected
-	case c.remote.receiver <- m:
-		return nil
-	}
-}
+func (c *inProcConnection) Send() chan<- *Message { return c.local }
+func (c *inProcConnection) Receive() <-chan *Message { return c.remote.local }
+func (c *inProcConnection) Close() { close(c.local) }
 
-func (c *inProcConnection) Disconnect() {
-	select {
-	case <-c.disconnected:
-	default:
-		close(c.disconnected)
-		c.remote.Disconnect()
-	}
-}
-
-func (c *inProcConnection) Receive() <-chan *Message      { return c.receiver }
-func (c *inProcConnection) Disconnected() <-chan struct{} { return c.disconnected }
-
-func NewNode() Node {
+func NewNode(o Opt) Node {
 	n := &node{
+        opt: o,
 		listen:  make(chan listen),
 		join:    make(chan join),
-		send:    make(chan *Message),
-		receive: make(chan *Message),
-		errors:  make(chan error),
+		errors:  make(chan error, o.ErrorBuffer),
 		close:   make(chan struct{})}
+
+    s := newBufferedConnection(o.SendBuffer, o.SendTimeout)
+    n.send = s.Send()
+    n.sender = s.Receive()
+
+    r := newBufferedConnection(o.ReceiveBuffer, o.ReceiveTimeout)
+    n.receive = r.Receive()
+    n.receiver = r.Send()
+
 	go n.run()
 	return n
 }
@@ -148,27 +188,28 @@ func isPayload(key []string) bool {
 
 func (n *node) watchChildConnection(c Connection) {
 	for {
-		select {
-		case <-c.Disconnected():
-			n.removeConnection <- c
-			return
-		case m := <-c.Receive():
-			switch {
-			case keyval.KeyEq(m.Key, keyJoin):
-				sendTo(c, msgJoinAccept, n.errors)
-			case isPayload(m.Key):
-				n.childReceive <- incoming{m, c}
-			}
-		}
+		m, open := <-c.Receive()
+        switch {
+        case !open:
+            n.removeConnection <- c
+            return
+        default:
+            n.childReceive <- incoming{m, c}
+        }
 	}
 }
 
 func (n *node) addChildConnection(c Connection) {
+    if n.opt.ChildBuffer > 0 || n.opt.ChildTimeout > 0 {
+        c = newBuffer(c, n.opt.ChildBuffer, n.opt.ChildTimeout)
+    }
+
 	n.childConnections = append(n.childConnections, c)
 	go n.watchChildConnection(c)
 }
 
 func (n *node) removeChildConnection(c Connection) {
+    c.Close()
 	cc := n.childConnections
 	for i, ci := range cc {
 		if ci == c {
@@ -179,41 +220,18 @@ func (n *node) removeChildConnection(c Connection) {
 	}
 }
 
-func waitMessage(c Connection, key []string, timeout time.Duration) (*Message, error) {
-	to := time.After(timeout)
-	for {
-		select {
-		case <-c.Disconnected():
-			return nil, ErrDisconnected
-		case <-to:
-			return nil, ErrJoinTimeout
-		case m := <-c.Receive():
-			if keyval.KeyEq(m.Key, key) {
-				return m, nil
-			}
-		}
-	}
-}
-
 func (n *node) joinNetwork(c Connection, ec chan error) {
 	pc := n.parentConnection
 	if pc != nil {
-		pc.Disconnect()
+		pc.Close()
 	}
 
-	if !sendTo(c, msgJoin, ec) {
-		return
-	}
-
-	_, err := waitMessage(c, keyJoinAccept, joinTimeout)
-	if err != nil {
-		ec <- err
-		return
-	}
+    if n.opt.ParentBuffer > 0 || n.opt.ParentTimeout > 0 {
+        c = newBuffer(c, n.opt.ParentBuffer, n.opt.ParentTimeout)
+    }
 
 	n.parentConnection = c
 	n.parentReceive = c.Receive()
-	n.parentDisconnected = c.Disconnected()
 	ec <- nil
 }
 
@@ -223,14 +241,8 @@ func (n *node) parentMessage(m *Message) {
 	}
 }
 
-func sendTo(c Connection, m *Message, ec chan error) bool {
-	err := c.Send(m)
-	if err != nil {
-		ec <- err
-		return false
-	}
-
-	return true
+func sendTo(c Connection, m *Message) {
+    c.Send() <- m
 }
 
 func (n *node) forwardMessage(m *Message, skipNode bool, skipConnections ...Connection) {
@@ -245,12 +257,12 @@ func (n *node) forwardMessage(m *Message, skipNode bool, skipConnections ...Conn
 	}
 
 	if n.parentConnection != nil && !skip(n.parentConnection) {
-		sendTo(n.parentConnection, m, n.errors)
+		sendTo(n.parentConnection, m)
 	}
 
 	for _, c := range n.childConnections {
 		if !skip(c) {
-			sendTo(c, m, n.errors)
+			sendTo(c, m)
 		}
 	}
 
@@ -260,7 +272,7 @@ func (n *node) forwardMessage(m *Message, skipNode bool, skipConnections ...Conn
 			key = key[1:]
 		}
 
-		n.receive <- &Message{Key: key, Val: m.Val, Comment: m.Comment}
+		n.receiver <- &Message{Key: key, Val: m.Val, Comment: m.Comment}
 	}
 }
 
@@ -273,22 +285,16 @@ func (n *node) sendMessage(m *Message) {
 
 func (n *node) disconnectAllChildren() {
 	for _, c := range n.childConnections {
-		c.Disconnect()
+		c.Close()
 	}
 
-	for {
-		c := <-n.removeConnection
-		n.removeChildConnection(c)
-		if len(n.childConnections) == 0 {
-			return
-		}
-	}
+    n.childConnections = nil
 }
 
 func (n *node) closeNode() {
-	pc := n.parentConnection
-	if pc != nil {
-		pc.Disconnect()
+	if n.parentConnection != nil {
+		n.parentConnection.Close()
+        n.parentReceive = nil
 	}
 
 	n.errors <- ErrNodeClosed
@@ -306,14 +312,19 @@ func (n *node) run() {
 			n.removeChildConnection(c)
 		case jm := <-n.join:
 			n.joinNetwork(jm.connection, jm.err)
-		case m := <-n.send:
+		case m := <-n.sender:
 			n.sendMessage(m)
-		case m := <-n.parentReceive:
-			n.parentMessage(m)
+		case m, open := <-n.parentReceive:
+            if !open {
+                n.errors <- ErrDisconnected
+                n.parentReceive = nil
+            } else {
+                n.parentMessage(m)
+            }
 		case im := <-n.childReceive:
-			n.forwardMessage(im.message, false, im.connection)
-		case <-n.parentDisconnected:
-			n.errors <- ErrDisconnected
+            if isPayload(im.message.Key) {
+                n.forwardMessage(im.message, false, im.connection)
+            }
 		case <-n.close:
 			n.closeNode()
 			return
@@ -341,29 +352,13 @@ func (n *node) Join(c Connection) error {
 	}
 }
 
-func (n *node) Send(m *Message) {
-	select {
-	case <-n.close:
-	case n.send <- m:
-	}
-}
-
-func (n *node) Receive() <-chan *Message {
-	return n.receive
-}
-
+func (n *node) Send() chan<- *Message { return n.send }
+func (n *node) Receive() <-chan *Message { return n.receive }
 func (n *node) Errors() <-chan error { return n.errors }
-
-func (n *node) Close() {
-	select {
-	case <-n.close:
-	default:
-		close(n.close)
-	}
-}
+func (n *node) Close() { close(n.close) }
 
 func createNode(label string) Node {
-	n := NewNode()
+	n := NewNode(Opt{})
 	go func() {
 		for {
 			m := <-n.Receive()
@@ -387,8 +382,7 @@ func createChildNode(listener chan Connection, label string) Node {
 
 func sendMessage(n Node, label, message string) {
 	fmt.Printf("\nsending message to: %s\n", label)
-	n.Send(&Message{Val: message})
-	time.Sleep(time.Millisecond)
+	n.Send() <- &Message{Val: message}
 }
 
 func sendHelloWorld(n Node, label string) {
@@ -396,13 +390,13 @@ func sendHelloWorld(n Node, label string) {
 }
 
 func closeAll(n ...Node) {
-	closed := make(chan struct{})
+	closed := make(chan error)
 	for _, ni := range n {
 		go func(n Node) {
 			for {
 				err := <-n.Errors()
 				if err == ErrNodeClosed {
-					closed <- struct{}{}
+					closed <- err
 					return
 				}
 			}
@@ -430,14 +424,15 @@ func main() {
 	nc1 := createChildNode(listener, "child 1")
 
 	sendHelloWorld(nc0, "child 0")
+	time.Sleep(time.Millisecond)
 	sendHelloWorld(np, "parent")
+	time.Sleep(time.Millisecond)
 	sendHelloWorld(nc1, "child 1")
+	time.Sleep(time.Millisecond)
 
-	closeAll(nc0, np, nc1)
+	closeAll(np)
 }
 
-// verify all blocking cases
-// verify where timeout is required
 // refactor
 // test all
 // self healing network
