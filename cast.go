@@ -15,7 +15,6 @@ type (
 type Connection interface {
 	Send() Sender
 	Receive() Receiver
-	Close()
 }
 
 type Listener <-chan Connection
@@ -26,7 +25,6 @@ type Node interface {
 	Send() Sender
 	Receive() Receiver
 	Errors() <-chan error
-	Close()
 }
 
 var (
@@ -36,12 +34,13 @@ var (
 
 func (c MessageChannel) Send() Sender      { return Sender(chan *Message(c)) }
 func (c MessageChannel) Receive() Receiver { return Receiver(chan *Message(c)) }
-func (c MessageChannel) Close()            { close(c) }
 
-// remove close
+// figure if it is really crucial to have the timeout implemented in the node
+// figure how the timeout and buffers should work together
 // report timeout
 // test all
 // self healing network
 // sockets
 // write a cmd client
 // consider handling states
+// consider stopping listening

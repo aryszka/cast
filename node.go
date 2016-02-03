@@ -108,7 +108,7 @@ func (n *node) sendMessage(m *Message) {
 func (n *node) join(c Connection) {
 	pc := n.parent
 	if pc != nil {
-		pc.Close()
+		close(pc.Send())
 	}
 
 	if n.opt.ParentBuffer > 0 || n.opt.ParentTimeout > 0 {
@@ -151,7 +151,7 @@ func (n *node) addChild(c Connection) {
 }
 
 func (n *node) removeChild(c Connection) {
-	c.Close()
+	close(c.Send())
 	cc := n.children
 	for i, ci := range cc {
 		if ci == c {
@@ -164,7 +164,7 @@ func (n *node) removeChild(c Connection) {
 
 func (n *node) closeChildren() {
 	for _, c := range n.children {
-		c.Close()
+		close(c.Send())
 	}
 
 	n.children = nil
@@ -172,11 +172,11 @@ func (n *node) closeChildren() {
 
 func (n *node) closeNode() {
 	if n.parent != nil {
-		n.parent.Close()
+		close(n.parent.Send())
 		n.parentReceive = nil
 	}
 
-	n.receive.Close()
+	close(n.receive.Send())
 	n.closeChildren()
 }
 
@@ -231,4 +231,3 @@ func (n *node) Join(c Connection) {
 func (n *node) Send() Sender         { return n.send.Send() }
 func (n *node) Receive() Receiver    { return n.receive.Receive() }
 func (n *node) Errors() <-chan error { return n.errors }
-func (n *node) Close()               { n.send.Close() }

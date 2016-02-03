@@ -9,7 +9,11 @@ func createNode(label string) Node {
 	n := NewNode(Opt{})
 	go func() {
 		for {
-			m := <-n.Receive()
+			m, open := <-n.Receive()
+			if !open {
+				return
+			}
+
 			fmt.Printf("%-9s: %s\n", label, m.Val)
 		}
 	}()
@@ -44,7 +48,7 @@ func closeAll(n ...Node) {
 			}
 		}(ni)
 
-		ni.Close()
+		close(ni.Send())
 	}
 
 	c := len(n)
@@ -67,8 +71,10 @@ func main() {
 
 	sendHelloWorld(nc0, "child 0")
 	time.Sleep(time.Millisecond)
+
 	sendHelloWorld(np, "parent")
 	time.Sleep(time.Millisecond)
+
 	sendHelloWorld(nc1, "child 1")
 	time.Sleep(time.Millisecond)
 

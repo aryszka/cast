@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
+	"github.com/aryszka/keyval"
 	"time"
-    "github.com/aryszka/keyval"
 )
 
 type buffer struct {
@@ -32,7 +32,7 @@ func NewBuffer(c Connection, size int, timeout time.Duration) Connection {
 		for {
 			m, open := <-send
 			if !open {
-				c.Close()
+				close(c.Send())
 				return
 			}
 
@@ -53,7 +53,6 @@ func NewBuffer(c Connection, size int, timeout time.Duration) Connection {
 
 func (b *buffer) Send() Sender      { return b.send }
 func (b *buffer) Receive() Receiver { return b.connection.Receive() }
-func (b *buffer) Close()            { close(b.send) }
 
 func NewInProcConnection(l chan Connection) Connection {
 	local := &inProcConnection{local: make(chan *Message)}
@@ -66,7 +65,6 @@ func NewInProcConnection(l chan Connection) Connection {
 
 func (c *inProcConnection) Send() Sender      { return c.local }
 func (c *inProcConnection) Receive() Receiver { return c.remote.local }
-func (c *inProcConnection) Close()            { close(c.local) }
 
 func NewBufferedConnection(size int, timeout time.Duration) Connection {
 	if timeout <= 0 {
@@ -90,7 +88,7 @@ func NewTimeoutConnection(c Connection, t time.Duration) Connection {
 		for {
 			m, open := <-send
 			if !open {
-				c.Close()
+				close(c.Send())
 				return
 			}
 
@@ -113,4 +111,3 @@ func (c *timeoutConnection) Send() Sender {
 }
 
 func (c *timeoutConnection) Receive() Receiver { return c.connection.Receive() }
-func (c *timeoutConnection) Close()            { close(c.send) }
