@@ -105,6 +105,20 @@ func (n *node) sendMessage(m *Message) {
 		Comment: m.Comment}, true)
 }
 
+func (n *node) join(c Connection) {
+	pc := n.parent
+	if pc != nil {
+		pc.Close()
+	}
+
+	if n.opt.ParentBuffer > 0 || n.opt.ParentTimeout > 0 {
+		c = NewBuffer(c, n.opt.ParentBuffer, n.opt.ParentTimeout)
+	}
+
+	n.parent = c
+	n.parentReceive = c.Receive()
+}
+
 func (n *node) listen(l Listener) error {
 	if n.listener != nil {
 		return ErrCannotListen
@@ -156,20 +170,6 @@ func (n *node) closeChildren() {
 	n.children = nil
 }
 
-func (n *node) join(c Connection) {
-	pc := n.parent
-	if pc != nil {
-		pc.Close()
-	}
-
-	if n.opt.ParentBuffer > 0 || n.opt.ParentTimeout > 0 {
-		c = NewBuffer(c, n.opt.ParentBuffer, n.opt.ParentTimeout)
-	}
-
-	n.parent = c
-	n.parentReceive = c.Receive()
-}
-
 func (n *node) closeNode() {
 	if n.parent != nil {
 		n.parent.Close()
@@ -182,14 +182,14 @@ func (n *node) closeNode() {
 
 func (n *node) receiveControl(c control) {
 	switch c.typ {
-	case listen:
-		c.err <- n.listen(c.listener)
 	case join:
 		n.join(c.connection)
-	case removeChild:
-		n.removeChild(c.connection)
+	case listen:
+		c.err <- n.listen(c.listener)
 	case childMessage:
 		n.incomingMessage(c.connection, c.message)
+	case removeChild:
+		n.removeChild(c.connection)
 	}
 }
 
@@ -198,15 +198,6 @@ func (n *node) run() {
 		select {
 		case c := <-n.control:
 			n.receiveControl(c)
-		case c := <-n.listener:
-			n.addChild(c)
-		case m, open := <-n.send.Receive():
-			if !open {
-				n.closeNode()
-				return
-			}
-
-			n.sendMessage(m)
 		case m, open := <-n.parentReceive:
 			if !open {
 				n.errors <- ErrDisconnected
@@ -214,6 +205,15 @@ func (n *node) run() {
 			} else {
 				n.incomingMessage(n.parent, m)
 			}
+		case m, open := <-n.send.Receive():
+			if !open {
+				n.closeNode()
+				return
+			}
+
+			n.sendMessage(m)
+		case c := <-n.listener:
+			n.addChild(c)
 		}
 	}
 }

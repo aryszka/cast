@@ -5,11 +5,12 @@ import (
 	"github.com/aryszka/keyval"
 )
 
-type Message keyval.Entry
-
-type Sender chan<- *Message
-
-type Receiver <-chan *Message
+type (
+	Message        keyval.Entry
+	Sender         chan<- *Message
+	Receiver       <-chan *Message
+	MessageChannel chan *Message
+)
 
 type Connection interface {
 	Send() Sender
@@ -20,8 +21,8 @@ type Connection interface {
 type Listener <-chan Connection
 
 type Node interface {
-	Listen(Listener) error
 	Join(Connection)
+	Listen(Listener) error
 	Send() Sender
 	Receive() Receiver
 	Errors() <-chan error
@@ -33,6 +34,11 @@ var (
 	ErrCannotListen = errors.New("node cannot listen")
 )
 
+func (c MessageChannel) Send() Sender      { return Sender(chan *Message(c)) }
+func (c MessageChannel) Receive() Receiver { return Receiver(chan *Message(c)) }
+func (c MessageChannel) Close()            { close(c) }
+
+// remove close
 // report timeout
 // test all
 // self healing network

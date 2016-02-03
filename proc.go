@@ -1,8 +1,10 @@
 package main
 
-import "time"
-
-type MessageChannel chan *Message
+import (
+	"fmt"
+	"time"
+    "github.com/aryszka/keyval"
+)
 
 type buffer struct {
 	send       chan *Message
@@ -14,9 +16,15 @@ type inProcConnection struct {
 	remote *inProcConnection
 }
 
-func (c MessageChannel) Send() Sender      { return Sender(chan *Message(c)) }
-func (c MessageChannel) Receive() Receiver { return Receiver(chan *Message(c)) }
-func (c MessageChannel) Close()            { close(c) }
+type TimeoutError struct {
+	message *Message
+}
+
+type timeoutConnection struct {
+	connection Connection
+	send       Sender
+	timeout    chan error
+}
 
 func NewBuffer(c Connection, size int, timeout time.Duration) Connection {
 	send := make(chan *Message, size)
@@ -67,3 +75,42 @@ func NewBufferedConnection(size int, timeout time.Duration) Connection {
 
 	return NewBuffer(make(MessageChannel), size, timeout)
 }
+
+func (e *TimeoutError) Error() string {
+	return fmt.Sprintf(
+		"timeout during sending to connection, message: %s",
+		keyval.JoinKey(e.message.Key))
+}
+
+// wrong, does not provide error interface
+func NewTimeoutConnection(c Connection, t time.Duration) Connection {
+	send := make(chan *Message)
+	to := make(chan error)
+	go func() {
+		for {
+			m, open := <-send
+			if !open {
+				c.Close()
+				return
+			}
+
+			// wrong, order is not guaranteed
+			go func() {
+				select {
+				case c.Send() <- m:
+				case <-time.After(t):
+					to <- &TimeoutError{m}
+				}
+			}()
+		}
+	}()
+
+	return &timeoutConnection{c, send, to}
+}
+
+func (c *timeoutConnection) Send() Sender {
+	return c.send
+}
+
+func (c *timeoutConnection) Receive() Receiver { return c.connection.Receive() }
+func (c *timeoutConnection) Close()            { close(c.send) }
