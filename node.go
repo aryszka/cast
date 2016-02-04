@@ -46,13 +46,45 @@ type Opt struct {
 	ErrorBuffer    int
 }
 
+func timeoutConnection(c Connection, timeout time.Duration, ec chan error) Connection {
+	tc := NewTimeoutConnection(c, timeout)
+	go func() {
+		err := <-tc.Timeout
+		ec <- err
+	}()
+
+	return tc
+}
+
+func timeoutBufferConnection(c Connection, buffer int, timeout time.Duration, ec chan error) Connection {
+	if buffer > 0 {
+		c = NewBufferedConnection(c, buffer)
+	}
+
+	if timeout > 0 {
+		c = timeoutConnection(c, timeout, ec)
+	}
+
+	return c
+}
+
+func makeTimeoutBufferConnection(buffer int, timeout time.Duration, ec chan error) Connection {
+	c := make(MessageChannel, buffer)
+	if timeout <= 0 {
+		return c
+	}
+
+	return timeoutConnection(c, timeout, ec)
+}
+
 func NewNode(o Opt) Node {
+	err := make(chan error, o.ErrorBuffer)
 	n := &node{
 		opt:     o,
 		control: make(chan control),
-		send:    NewBufferedConnection(o.SendBuffer, o.SendTimeout),
-		receive: NewBufferedConnection(o.ReceiveBuffer, o.ReceiveTimeout),
-		errors:  make(chan error, o.ErrorBuffer)}
+		send:    makeTimeoutBufferConnection(o.SendBuffer, o.SendTimeout, err),
+		receive: makeTimeoutBufferConnection(o.ReceiveBuffer, o.ReceiveTimeout, err),
+		errors:  err}
 	go n.run()
 	return n
 }
@@ -112,7 +144,7 @@ func (n *node) join(c Connection) {
 	}
 
 	if n.opt.ParentBuffer > 0 || n.opt.ParentTimeout > 0 {
-		c = NewBuffer(c, n.opt.ParentBuffer, n.opt.ParentTimeout)
+		c = timeoutBufferConnection(c, n.opt.ParentBuffer, n.opt.ParentTimeout, n.errors)
 	}
 
 	n.parent = c
@@ -143,7 +175,7 @@ func (n *node) receiveFromChild(c Connection) {
 
 func (n *node) addChild(c Connection) {
 	if n.opt.ChildBuffer > 0 || n.opt.ChildTimeout > 0 {
-		c = NewBuffer(c, n.opt.ChildBuffer, n.opt.ChildTimeout)
+		c = timeoutBufferConnection(c, n.opt.ChildBuffer, n.opt.ChildTimeout, n.errors)
 	}
 
 	n.children = append(n.children, c)
