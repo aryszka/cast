@@ -1,4 +1,4 @@
-package main
+package cast
 
 import "time"
 
@@ -28,7 +28,7 @@ type node struct {
 	listener      Listener
 	children      []Connection
 	parent        Connection
-	parentReceive Receiver
+	parentReceive <-chan *Message
 	send          Connection
 	receive       Connection
 	errors        chan error
@@ -260,6 +260,6 @@ func (n *node) Join(c Connection) {
 	n.control <- control{typ: join, connection: c}
 }
 
-func (n *node) Send() Sender         { return n.send.Send() }
-func (n *node) Receive() Receiver    { return n.receive.Receive() }
-func (n *node) Errors() <-chan error { return n.errors }
+func (n *node) Send() chan<- *Message    { return n.send.Send() }
+func (n *node) Receive() <-chan *Message { return n.receive.Receive() }
+func (n *node) Errors() <-chan error     { return n.errors }

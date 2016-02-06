@@ -1,4 +1,4 @@
-package main
+package cast
 
 import (
 	"fmt"
@@ -19,12 +19,12 @@ type TimeoutError struct {
 
 type TimeoutConnection struct {
 	connection Connection
-	send       Sender
+	send       chan<- *Message
 	Timeout    chan error
 }
 
-func (c MessageChannel) Send() Sender      { return Sender(chan *Message(c)) }
-func (c MessageChannel) Receive() Receiver { return Receiver(chan *Message(c)) }
+func (c MessageChannel) Send() chan<- *Message    { return c }
+func (c MessageChannel) Receive() <-chan *Message { return c }
 
 func NewInProcConnection(l chan Connection) Connection {
 	local := &inProcConnection{local: make(chan *Message)}
@@ -35,8 +35,8 @@ func NewInProcConnection(l chan Connection) Connection {
 	return local
 }
 
-func (c *inProcConnection) Send() Sender      { return c.local }
-func (c *inProcConnection) Receive() Receiver { return c.remote.local }
+func (c *inProcConnection) Send() chan<- *Message    { return c.local }
+func (c *inProcConnection) Receive() <-chan *Message { return c.remote.local }
 
 func (e *TimeoutError) Error() string {
 	return fmt.Sprintf(
@@ -58,7 +58,7 @@ func NewTimeoutConnection(c Connection, t time.Duration) *TimeoutConnection {
 
 			// avoid receiving the next message before reaching the sender select
 			mc := make(chan *Message)
-			go func(mc Receiver) {
+			go func(mc <-chan *Message) {
 				m := <-mc
 				select {
 				case c.Send() <- m:
@@ -73,8 +73,8 @@ func NewTimeoutConnection(c Connection, t time.Duration) *TimeoutConnection {
 	return &TimeoutConnection{c, send, to}
 }
 
-func (c *TimeoutConnection) Send() Sender      { return c.send }
-func (c *TimeoutConnection) Receive() Receiver { return c.connection.Receive() }
+func (c *TimeoutConnection) Send() chan<- *Message    { return c.send }
+func (c *TimeoutConnection) Receive() <-chan *Message { return c.connection.Receive() }
 
 func NewBufferedConnection(c Connection, size int) Connection {
 	send := make(MessageChannel, size)
