@@ -8,6 +8,7 @@ import (
 
 // simple channel implementing the connection interface
 // one direction
+// error channel always blocking
 type MessageChannel chan *Message
 
 type inProcConnection struct {
@@ -19,25 +20,25 @@ type TimeoutError struct {
 	Message *Message
 }
 
-// connection wrapper with timeout
-// it should be used only when leaking messages is fine,
-// otherwise buffering is recommended
-type TimeoutConnection struct {
-	connection Connection
-	send       chan<- *Message
-	Timeout    chan error
-}
-
 type bufferedConnection struct {
 	send       chan *Message
 	connection Connection
+	err        chan error
+}
+
+type timeoutConnection struct {
+	connection Connection
+	send       chan<- *Message
+	err        chan error
 }
 
 func (c MessageChannel) Send() chan<- *Message    { return c }
 func (c MessageChannel) Receive() <-chan *Message { return c }
+func (c MessageChannel) Error() <-chan error      { return nil }
 
 // creates a symmetric connection
 // representing an in-process communication channel
+// error channel always blocking
 func NewInProcConnection() (Connection, Connection) {
 	local := &inProcConnection{local: make(chan *Message)}
 	remote := &inProcConnection{local: make(chan *Message)}
@@ -48,6 +49,7 @@ func NewInProcConnection() (Connection, Connection) {
 
 func (c *inProcConnection) Send() chan<- *Message    { return c.local }
 func (c *inProcConnection) Receive() <-chan *Message { return c.remote.local }
+func (c *inProcConnection) Error() <-chan error      { return nil }
 
 func (e *TimeoutError) Error() string {
 	return fmt.Sprintf(
@@ -55,11 +57,50 @@ func (e *TimeoutError) Error() string {
 		keyval.JoinKey(e.Message.Key))
 }
 
+// wraps a connection with a buffer
+// takes ownership of the connection regarding closing
+// takes over error reporting of embedded channel
+func NewBufferedConnection(c Connection, size int) Connection {
+	send := make(MessageChannel, size)
+	ec := make(chan error)
+	go func() {
+		for {
+			select {
+			case m, open := <-send:
+				if !open {
+					close(c.Send())
+					return
+				}
+
+				c.Send() <- m
+			case err, open := <-c.Error():
+				if open {
+					ec <- err
+				} else {
+					panic("error channel closed")
+				}
+			}
+		}
+	}()
+
+	return &bufferedConnection{send, c, ec}
+}
+
+func (c *bufferedConnection) Send() chan<- *Message    { return c.send }
+func (c *bufferedConnection) Receive() <-chan *Message { return c.connection.Receive() }
+func (c *bufferedConnection) Error() <-chan error      { return c.err }
+
 // wraps a connection with send timeout
 // takes ownership of the connection regarding closing
-func NewTimeoutConnection(c Connection, t time.Duration) *TimeoutConnection {
+//
+// connection wrapper with timeout
+// it should be used only when leaking messages is fine,
+// otherwise buffering is recommended
+//
+// order of timeout errors not guaranteed, order of sent messages guaranteed
+func NewTimeoutConnection(c Connection, t time.Duration) Connection {
 	send := make(chan *Message)
-	to := make(chan error)
+	ec := make(chan error)
 
 	go func() {
 		open := true
@@ -78,7 +119,7 @@ func NewTimeoutConnection(c Connection, t time.Duration) *TimeoutConnection {
 						select {
 						case c.Send() <- m:
 						case <-time.After(t):
-							to <- &TimeoutError{m}
+							ec <- &TimeoutError{m}
 						}
 
 						sendComplete <- struct{}{}
@@ -98,34 +139,19 @@ func NewTimeoutConnection(c Connection, t time.Duration) *TimeoutConnection {
 					close(c.Send())
 					return
 				}
+			case err, open := <-c.Error():
+				if open {
+					ec <- err
+				} else {
+					panic("error channel closed")
+				}
 			}
 		}
 	}()
 
-	return &TimeoutConnection{c, send, to}
+	return &timeoutConnection{c, send, ec}
 }
 
-func (c *TimeoutConnection) Send() chan<- *Message    { return c.send }
-func (c *TimeoutConnection) Receive() <-chan *Message { return c.connection.Receive() }
-
-// wraps a connection with a buffer
-// takes ownership of the connection regarding closing
-func NewBufferedConnection(c Connection, size int) Connection {
-	send := make(MessageChannel, size)
-	go func() {
-		for {
-			m, open := <-send
-			if !open {
-				close(c.Send())
-				return
-			}
-
-			c.Send() <- m
-		}
-	}()
-
-	return &bufferedConnection{send, c}
-}
-
-func (c *bufferedConnection) Send() chan<- *Message    { return c.send }
-func (c *bufferedConnection) Receive() <-chan *Message { return c.connection.Receive() }
+func (c *timeoutConnection) Send() chan<- *Message    { return c.send }
+func (c *timeoutConnection) Receive() <-chan *Message { return c.connection.Receive() }
+func (c *timeoutConnection) Error() <-chan error      { return c.err }

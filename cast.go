@@ -54,9 +54,13 @@ type Message keyval.Entry
 // implementation and initialization
 //
 // a simple channel actually can implement this interface
+// one way
+//
+// it's an error to close the error channel
 type Connection interface {
 	Send() chan<- *Message
 	Receive() <-chan *Message
+	Error() <-chan error
 }
 
 // shall we add errors? no: should be handled by the creator
@@ -76,11 +80,12 @@ type Listener <-chan Connection
 // it is an error to call listen twice without closing the listener channel
 // first
 // does not recieve its own messages
+// parent is the point where a node joins a network of nodes
+// takes over error reporting from connections
 type Node interface {
 	Connection
 	Join(Connection)
 	Listen(Listener)
-	Error() <-chan error // disconnected parent and timeouts
 }
 
 // error sent when parent is disconnected

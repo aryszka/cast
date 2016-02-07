@@ -7,7 +7,7 @@ import (
 )
 
 func createNode(label string) cast.Node {
-	n := cast.NewNode(cast.Opt{})
+	n := cast.NewNode()
 	go func() {
 		for {
 			m, open := <-n.Receive()

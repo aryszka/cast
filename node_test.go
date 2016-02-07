@@ -1,10 +1,13 @@
 package cast
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestNodeToParentMessageChannelBehavior(t *testing.T) {
-	testMessageChannel(t, "single node to parent", func(buffer int) (Connection, []Connection) {
-		n := NewNode(Opt{ParentBuffer: buffer})
+	testMessageChannel(t, "single node to parent", func(buffer int, timeout time.Duration) (Connection, []Connection) {
+		n := Opt{ParentBuffer: buffer, ParentTimeout: timeout}.NewNode()
 		local, remote := NewInProcConnection()
 		n.Join(local)
 		return n, []Connection{remote}
@@ -12,23 +15,17 @@ func TestNodeToParentMessageChannelBehavior(t *testing.T) {
 }
 
 func TestParentToNodeMessageChannelBehavior(t *testing.T) {
-	testMessageChannel(t, "parent to single node", func(buffer int) (Connection, []Connection) {
-		n := NewNode(Opt{})
+	testMessageChannel(t, "parent to single node", func(buffer int, _ time.Duration) (Connection, []Connection) {
+		n := Opt{ReceiveBuffer: buffer}.NewNode()
 		local, remote := NewInProcConnection()
 		n.Join(local)
-
-		var pc Connection = remote
-		if buffer != 0 {
-			pc = NewBufferedConnection(pc, buffer)
-		}
-
-		return pc, []Connection{n}
+		return remote, []Connection{n}
 	})
 }
 
 func TestNodeToChildren(t *testing.T) {
-	testMessageChannel(t, "node to children", func(buffer int) (Connection, []Connection) {
-		n := NewNode(Opt{ChildBuffer: buffer})
+	testMessageChannel(t, "node to children", func(buffer int, timeout time.Duration) (Connection, []Connection) {
+		n := Opt{ChildBuffer: buffer, ChildTimeout: timeout}.NewNode()
 		l := make(chan Connection)
 		n.Listen(l)
 
@@ -45,8 +42,8 @@ func TestNodeToChildren(t *testing.T) {
 }
 
 func TestNodesParentToEveryone(t *testing.T) {
-	testMessageChannel(t, "parent to everyone", func(buffer int) (Connection, []Connection) {
-		p := NewNode(Opt{SendBuffer: buffer})
+	testMessageChannel(t, "parent to everyone", func(buffer int, _ time.Duration) (Connection, []Connection) {
+		p := Opt{SendBuffer: buffer}.NewNode()
 		l := make(chan Connection)
 		p.Listen(l)
 
@@ -54,7 +51,7 @@ func TestNodesParentToEveryone(t *testing.T) {
 		makeChild := func() {
 			local, remote := NewInProcConnection()
 			l <- remote
-			c := NewNode(Opt{})
+			c := NewNode()
 			c.Join(local)
 			nodes = append(nodes, c)
 		}
@@ -68,8 +65,8 @@ func TestNodesParentToEveryone(t *testing.T) {
 }
 
 func TestNodesChildToEveryone(t *testing.T) {
-	testMessageChannel(t, "parent to everyone", func(buffer int) (Connection, []Connection) {
-		p := NewNode(Opt{SendBuffer: buffer})
+	testMessageChannel(t, "parent to everyone", func(buffer int, _ time.Duration) (Connection, []Connection) {
+		p := Opt{SendBuffer: buffer}.NewNode()
 		l := make(chan Connection)
 		p.Listen(l)
 
@@ -77,7 +74,7 @@ func TestNodesChildToEveryone(t *testing.T) {
 		makeChild := func() {
 			local, remote := NewInProcConnection()
 			l <- remote
-			c := NewNode(Opt{})
+			c := NewNode()
 			c.Join(local)
 			nodes = append(nodes, c)
 		}

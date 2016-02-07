@@ -1,6 +1,7 @@
 package cast
 
 import (
+	"fmt"
 	"strconv"
 	"sync"
 	"testing"
@@ -14,40 +15,45 @@ immediate blocking.
 */
 
 type (
-	makeChannel func(int) (Connection, []Connection)
-	testFunc    func(*testing.T, string, Connection, []Connection)
+	makeChannel func(int, time.Duration) (Connection, []Connection)
+	testFunc    func(*testing.T, string, string, Connection, []Connection)
 )
 
-func testSend(t *testing.T, msg string, local Connection, remote []Connection) {
+func errmsg(msg, smsg, ssmsg string) string {
+	return fmt.Sprintf("%s, %s; %s", msg, smsg, ssmsg)
+}
+
+func testSend(t *testing.T, msg, smsg string, local Connection, remote []Connection) {
 	m := &Message{}
 	go func() { local.Send() <- m }()
 	for _, r := range remote {
 		mr := <-r.Receive()
 		if mr != m {
-			t.Error(msg+";", "failed to send message")
+			t.Error(errmsg(msg, smsg, "failed to send message"))
 		}
 	}
 }
 
-func testBlock(t *testing.T, msg string, local Connection, remote []Connection) {
+func testBlock(t *testing.T, msg, smsg string, local Connection, remote []Connection) {
 	var wg sync.WaitGroup
 	wg.Add(len(remote))
+
 	for _, r := range remote {
 		go func(r Connection) {
+			defer wg.Done()
+
 			select {
 			case <-r.Receive():
-				t.Error(msg, "failed to block channel")
+				t.Error(errmsg(msg, smsg, "failed to block channel"))
 			case <-time.After(time.Millisecond):
 			}
-
-			wg.Done()
 		}(r)
 	}
 
 	wg.Wait()
 }
 
-func testBuffer(t *testing.T, msg string, local Connection, remote []Connection) {
+func testBuffer(t *testing.T, msg, smsg string, local Connection, remote []Connection) {
 	const buf = 3
 
 	for i := 0; i < buf; i++ {
@@ -56,51 +62,104 @@ func testBuffer(t *testing.T, msg string, local Connection, remote []Connection)
 
 	var wg sync.WaitGroup
 	wg.Add(len(remote))
+
 	for _, r := range remote {
 		go func(r Connection) {
+			defer wg.Done()
+
 			for i := 0; i < buf; i++ {
 				select {
 				case <-r.Receive():
 				case <-time.After(time.Millisecond):
-					t.Error(msg+";", "failed to buffer messages")
+					t.Error(errmsg(msg, smsg, "failed to buffer messages"))
 				}
 			}
-
-			wg.Done()
 		}(r)
 	}
 
 	wg.Wait()
 }
 
-func testClose(t *testing.T, msg string, local Connection, remote []Connection) {
+func testTimeout(t *testing.T, msg, smsg string, local Connection, remote []Connection) {
+	const timeout = time.Millisecond
+
+	for _, c := range remote {
+		if _, ok := c.(Node); ok {
+			return
+		}
+	}
+
+	m := &Message{}
+	go func() { local.Send() <- m }()
+	select {
+	case err := <-local.Error():
+		if terr, ok := err.(*TimeoutError); ok && terr.Message != m {
+			t.Error(errmsg(msg, smsg, "invalid message in timeout error"))
+		} else if !ok {
+			t.Error(errmsg(msg, smsg, "invalid error"))
+		}
+	case <-time.After(2 * timeout):
+		t.Error(msg+";", "timeout failed")
+	}
+}
+
+func testBufferAndTimeout(t *testing.T, msg, smsg string, local Connection, remote []Connection) {
+	const (
+		buf     = 3
+		timeout = time.Millisecond
+	)
+
+	for _, c := range remote {
+		if _, ok := c.(Node); ok {
+			return
+		}
+	}
+
+	go func() {
+		for {
+			local.Send() <- &Message{}
+		}
+	}()
+
+	select {
+	case err := <-local.Error():
+		if _, ok := err.(*TimeoutError); !ok {
+			t.Error(errmsg(msg, smsg, "invalid error"))
+		}
+	case <-time.After(2 * timeout):
+		t.Error(msg+";", "timeout failed")
+	}
+}
+
+func testClose(t *testing.T, msg, smsg string, local Connection, remote []Connection) {
 	close(local.Send())
+
 	var wg sync.WaitGroup
 	wg.Add(len(remote))
+
 	for _, r := range remote {
 		go func(r Connection) {
+			defer wg.Done()
+
 			if _, ok := r.(Node); ok {
-				wg.Done()
 				return
 			}
 
 			select {
 			case _, open := <-r.Receive():
 				if open {
-					t.Error(msg+";", "failed to close channel")
+					t.Error(errmsg(msg, smsg, "failed to close channel"))
 				}
 			case <-time.After(time.Millisecond):
-				t.Error(msg+";", "failed to close channel")
+				t.Error(errmsg(msg, smsg, "failed to close channel"))
 			}
-
-			wg.Done()
 		}(r)
 	}
 
 	wg.Wait()
 }
 
-func testOrder(t *testing.T, msg string, local Connection, remote []Connection) {
+func testOrder(t *testing.T, msg, smsg string, local Connection, remote []Connection) {
 	const count = 3
 
 	go func() {
@@ -113,13 +172,16 @@ func testOrder(t *testing.T, msg string, local Connection, remote []Connection) 
 
 	var wg sync.WaitGroup
 	wg.Add(len(remote))
+
 	for _, r := range remote {
 		go func(r Connection) {
+			defer wg.Done()
+
 			var prev *Message
 			for i := 0; i < count; i++ {
 				next := <-r.Receive()
 				if prev != nil && next.Val <= prev.Val {
-					t.Error(msg+";", "failed to send messages in the right order")
+					t.Error(errmsg(msg, smsg, "failed to send messages in the right order"))
 					return
 				}
 
@@ -127,16 +189,13 @@ func testOrder(t *testing.T, msg string, local Connection, remote []Connection) 
 			}
 
 			if _, ok := r.(Node); ok {
-				wg.Done()
 				return
 			}
 
 			_, open := <-r.Receive()
 			if open {
-				t.Error(msg+";", "failed to close channel")
+				t.Error(errmsg(msg, smsg, "failed to close channel"))
 			}
-
-			wg.Done()
 		}(r)
 	}
 
@@ -145,16 +204,20 @@ func testOrder(t *testing.T, msg string, local Connection, remote []Connection) 
 
 func testMessageChannel(t *testing.T, msg string, mc makeChannel) {
 	for _, ti := range []struct {
-		tf     testFunc
-		buffer int
+		tf      testFunc
+		msg     string
+		buffer  int
+		timeout time.Duration
 	}{
-		{testSend, 0},
-		{testBlock, 0},
-		{testBuffer, 3},
-		{testClose, 0},
-		{testOrder, 0},
+		{testSend, "send", 0, 0},
+		{testBlock, "block", 0, 0},
+		{testBuffer, "buffer", 3, 0},
+		{testTimeout, "timeout", 0, time.Millisecond},
+		{testBufferAndTimeout, "buffer and timeout", 3, time.Millisecond},
+		{testClose, "close", 0, 0},
+		{testOrder, "order", 0, 0},
 	} {
-		local, remote := mc(ti.buffer)
-		ti.tf(t, msg, local, remote)
+		local, remote := mc(ti.buffer, ti.timeout)
+		ti.tf(t, msg, ti.msg, local, remote)
 	}
 }
