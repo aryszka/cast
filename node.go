@@ -19,7 +19,6 @@ type control struct {
 	listener   Listener
 	connection Connection
 	message    *Message
-	err        chan error
 }
 
 type node struct {
@@ -34,18 +33,39 @@ type node struct {
 	errors        chan error
 }
 
+// Node init options
+// timeouts should be used only when leaking messages is fine,
+// otherwise buffers are recommended
 type Opt struct {
-	ParentTimeout  time.Duration
-	ChildTimeout   time.Duration
-	SendTimeout    time.Duration
+	// send timeout to parent connection
+	ParentTimeout time.Duration
+
+	// send buffer to parent connection
+	ParentBuffer int
+
+	// send timeout to child connections
+	ChildTimeout time.Duration
+
+	// send buffer to child connections
+	ChildBuffer int
+
+	// timeout on Node.Send (incoming)
+	SendTimeout time.Duration
+
+	// buffer on Node.Send (incoming)
+	SendBuffer int
+
+	// timeout on Node.Receive (outgoing)
 	ReceiveTimeout time.Duration
-	ParentBuffer   int
-	ChildBuffer    int
-	SendBuffer     int
-	ReceiveBuffer  int
-	ErrorBuffer    int
+
+	// buffer on Node.Receive (outgoing)
+	ReceiveBuffer int
+
+	// buffer on Node.Error
+	ErrorBuffer int
 }
 
+// wrap a connection with timeout and send timeout errors to ec
 func timeoutConnection(c Connection, timeout time.Duration, ec chan error) Connection {
 	tc := NewTimeoutConnection(c, timeout)
 	go func() {
@@ -56,6 +76,7 @@ func timeoutConnection(c Connection, timeout time.Duration, ec chan error) Conne
 	return tc
 }
 
+// if buffer and/or timeout > 0, wrap a connection with buffer and/or timeout
 func timeoutBufferConnection(c Connection, buffer int, timeout time.Duration, ec chan error) Connection {
 	if buffer > 0 {
 		c = NewBufferedConnection(c, buffer)
@@ -68,15 +89,17 @@ func timeoutBufferConnection(c Connection, buffer int, timeout time.Duration, ec
 	return c
 }
 
+// make a connection. if buffer and/or timeout > 0, wrap a connection with buffer and/or timeout
 func makeTimeoutBufferConnection(buffer int, timeout time.Duration, ec chan error) Connection {
-	c := make(MessageChannel, buffer)
-	if timeout <= 0 {
-		return c
+	var c Connection = make(MessageChannel, buffer)
+	if timeout > 0 {
+		c = timeoutConnection(c, timeout, ec)
 	}
 
-	return timeoutConnection(c, timeout, ec)
+	return c
 }
 
+// create a Node with the provided options
 func NewNode(o Opt) Node {
 	err := make(chan error, o.ErrorBuffer)
 	n := &node{
@@ -89,10 +112,9 @@ func NewNode(o Opt) Node {
 	return n
 }
 
-func isPayload(key []string) bool {
-	return len(key) > 0 && key[0] == messagePrefix
-}
-
+// dispatch a message
+// if omitNode true, don't send it onto Node.Receive
+// don't send it connections listed as to omit
 func (n *node) dispatchMessage(m *Message, omitNode bool, omit ...Connection) {
 	omitContains := func(c Connection) bool {
 		for _, ci := range omit {
@@ -115,28 +137,11 @@ func (n *node) dispatchMessage(m *Message, omitNode bool, omit ...Connection) {
 	}
 
 	if !omitNode {
-		key := m.Key
-		if isPayload(key) {
-			key = key[1:]
-		}
-
-		n.receive.Send() <- &Message{Key: key, Val: m.Val, Comment: m.Comment}
+		n.receive.Send() <- m
 	}
 }
 
-func (n *node) incomingMessage(c Connection, m *Message) {
-	if isPayload(m.Key) {
-		n.dispatchMessage(m, false, c)
-	}
-}
-
-func (n *node) sendMessage(m *Message) {
-	n.dispatchMessage(&Message{
-		Key:     append([]string{messagePrefix}, m.Key...),
-		Val:     m.Val,
-		Comment: m.Comment}, true)
-}
-
+// join a parent connection
 func (n *node) join(c Connection) {
 	pc := n.parent
 	if pc != nil {
@@ -151,15 +156,24 @@ func (n *node) join(c Connection) {
 	n.parentReceive = c.Receive()
 }
 
+// listen for child connections
 func (n *node) listen(l Listener) error {
 	if n.listener != nil {
-		return ErrCannotListen
+		panic("already listening")
 	}
 
 	n.listener = l
 	return nil
 }
 
+// stops listening and closes child connections
+func (n *node) stopListening() {
+	n.listener = nil
+	n.closeChildren()
+}
+
+// process a message from a child
+// if the child connection was closed, remove it
 func (n *node) receiveFromChild(c Connection) {
 	for {
 		m, open := <-c.Receive()
@@ -173,6 +187,7 @@ func (n *node) receiveFromChild(c Connection) {
 	}
 }
 
+// adds a new child connection and starts receiving messages from it
 func (n *node) addChild(c Connection) {
 	if n.opt.ChildBuffer > 0 || n.opt.ChildTimeout > 0 {
 		c = timeoutBufferConnection(c, n.opt.ChildBuffer, n.opt.ChildTimeout, n.errors)
@@ -182,6 +197,7 @@ func (n *node) addChild(c Connection) {
 	go n.receiveFromChild(c)
 }
 
+// closes and removes a child connection
 func (n *node) removeChild(c Connection) {
 	close(c.Send())
 	cc := n.children
@@ -194,6 +210,7 @@ func (n *node) removeChild(c Connection) {
 	}
 }
 
+// closes all child connections
 func (n *node) closeChildren() {
 	for _, c := range n.children {
 		close(c.Send())
@@ -202,6 +219,7 @@ func (n *node) closeChildren() {
 	n.children = nil
 }
 
+// closes the node, including the parent and child connections if any
 func (n *node) closeNode() {
 	if n.parent != nil {
 		close(n.parent.Send())
@@ -212,19 +230,21 @@ func (n *node) closeNode() {
 	n.closeChildren()
 }
 
+// processes a control message
 func (n *node) receiveControl(c control) {
 	switch c.typ {
 	case join:
 		n.join(c.connection)
 	case listen:
-		c.err <- n.listen(c.listener)
+		n.listen(c.listener)
 	case childMessage:
-		n.incomingMessage(c.connection, c.message)
+		n.dispatchMessage(c.message, false, c.connection)
 	case removeChild:
 		n.removeChild(c.connection)
 	}
 }
 
+// runs the node's main processing loop
 func (n *node) run() {
 	for {
 		select {
@@ -235,7 +255,7 @@ func (n *node) run() {
 				n.errors <- ErrDisconnected
 				n.parentReceive = nil
 			} else {
-				n.incomingMessage(n.parent, m)
+				n.dispatchMessage(m, false, n.parent)
 			}
 		case m, open := <-n.send.Receive():
 			if !open {
@@ -243,23 +263,19 @@ func (n *node) run() {
 				return
 			}
 
-			n.sendMessage(m)
-		case c := <-n.listener:
-			n.addChild(c)
+			n.dispatchMessage(m, true)
+		case c, open := <-n.listener:
+			if !open {
+				n.stopListening()
+			} else {
+				n.addChild(c)
+			}
 		}
 	}
 }
 
-func (n *node) Listen(l Listener) error {
-	ec := make(chan error)
-	n.control <- control{typ: listen, listener: l, err: ec}
-	return <-ec
-}
-
-func (n *node) Join(c Connection) {
-	n.control <- control{typ: join, connection: c}
-}
-
+func (n *node) Listen(l Listener)        { n.control <- control{typ: listen, listener: l} }
+func (n *node) Join(c Connection)        { n.control <- control{typ: join, connection: c} }
 func (n *node) Send() chan<- *Message    { return n.send.Send() }
 func (n *node) Receive() <-chan *Message { return n.receive.Receive() }
-func (n *node) Errors() <-chan error     { return n.errors }
+func (n *node) Error() <-chan error      { return n.errors }

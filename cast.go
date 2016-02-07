@@ -4,18 +4,21 @@ this rather only to add up to the nice sounding abbreviation
 
 cast is about sharing and applying atomic pieces of information in
 distributed systems as soon as they are available regardless of the full
-state of the concepts they describe
+state of the concepts they are describing
 
 cast systems may not be consistent at any single moment in time,
 measurable or not, but they should continously be convergent to a
 consistent state
 
 cast systems may provide consistency or consensus for a subset or the
-entirety of the represented concepts built on top of the cast
-communication primitives
+entirety of the represented concepts, but the cast communication
+primitives don't target consistency or consensus
 
 this library provides a gossip style communication model and a carrier
 network for cast based systems
+
+other network topologies can still comply with the cast communication
+model
 
 if the error channels are left out, mention them as a best practice
 */
@@ -42,39 +45,49 @@ import (
 // messages is displayed in human readable form
 type Message keyval.Entry
 
+// objects representing one enpoint of a communcation channel
+//
 // blocking?
 // closing?
 // reconnection?
 // errors? maybe in general, the errors should be handled by the
 // implementation and initialization
 //
-// a simple channel actually implements this interface
+// a simple channel actually can implement this interface
 type Connection interface {
 	Send() chan<- *Message
 	Receive() <-chan *Message
 }
 
 // shall we add errors? no: should be handled by the creator
-// watch close?
+// stop listening by closing this channel
+// node should also close the child connections
 type Listener <-chan Connection
 
 // minimal implementation
 // listen error? maybe it should be a panic
+// many to many communication
+// building block for network topography
+// parent child system
+// disconnected when parent connection disconnected
+// closing by closing send
+// join takes over ownership regarding closing
+// listen takes over ownership of incoming connections
+// it is an error to call listen twice without closing the listener channel
+// first
+// does not recieve its own messages
 type Node interface {
+	Connection
 	Join(Connection)
-	Listen(Listener) error // is this error unavoidable?
-	Send() chan<- *Message
-	Receive() <-chan *Message
-	Errors() <-chan error // is this unavoidable?
+	Listen(Listener)
+	Error() <-chan error // disconnected parent and timeouts
 }
 
-// ???
-var (
-	ErrDisconnected = errors.New("disconnected")
-	ErrCannotListen = errors.New("node cannot listen") // should be panic
-)
+// error sent when parent is disconnected
+var ErrDisconnected = errors.New("disconnected")
 
 // test all
+// fix timeout connection by splitting time
 // benchmark all
 // document closing connections
 // self healing network
