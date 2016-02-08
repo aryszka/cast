@@ -1,9 +1,16 @@
 package cast
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
+
+type failingConnection chan error
+
+func (c failingConnection) Send() chan<- *Message    { return nil }
+func (c failingConnection) Receive() <-chan *Message { return nil }
+func (c failingConnection) Error() <-chan error      { return c }
 
 func TestMessageChannel(t *testing.T) {
 	testMessageChannel(t, "simple message channel", func(buffer int, timeout time.Duration) (Connection, []Connection) {
@@ -48,4 +55,34 @@ func TestInProcChannelBehaviorRemote(t *testing.T) {
 
 		return remote, []Connection{local}
 	})
+}
+
+func TestBufferedConnectionForwardsError(t *testing.T) {
+	fc := make(failingConnection)
+	err := errors.New("test error")
+	go func() { fc <- err }()
+	bc := NewBufferedConnection(fc, 0)
+	select {
+	case errBack := <-bc.Error():
+		if errBack != err {
+			t.Error("failed to forward error")
+		}
+	case <-time.After(120 * time.Millisecond):
+		t.Error("failed to forward error")
+	}
+}
+
+func TestTimeoutConnectionForwardsError(t *testing.T) {
+	fc := make(failingConnection)
+	err := errors.New("test error")
+	go func() { fc <- err }()
+	bc := NewTimeoutConnection(fc, 0)
+	select {
+	case errBack := <-bc.Error():
+		if errBack != err {
+			t.Error("failed to forward error")
+		}
+	case <-time.After(120 * time.Millisecond):
+		t.Error("failed to forward error")
+	}
 }

@@ -16,6 +16,7 @@ type inProcConnection struct {
 	remote *inProcConnection
 }
 
+// error send in case of a timeout on a connection that handles it
 type TimeoutError struct {
 	Message *Message
 }

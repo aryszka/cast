@@ -57,6 +57,8 @@ type Message keyval.Entry
 // one way
 //
 // it's an error to close the error channel
+//
+// error handling asynchronous
 type Connection interface {
 	Send() chan<- *Message
 	Receive() <-chan *Message
@@ -91,11 +93,9 @@ type Node interface {
 // error sent when parent is disconnected
 var ErrDisconnected = errors.New("disconnected")
 
-// test all
 // fix timeout connection by splitting time
 // benchmark all
 // document closing connections
 // self healing network
 // sockets
 // write a cmd client
-// consider handling states: better as composite node

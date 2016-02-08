@@ -10,7 +10,7 @@ import (
 
 /*
 In many places, using time.After(time.Millisecond) in selects instead of
-default, because the Connection implementation not necessarily provides
+`default`, because the Connection implementation not necessarily provides
 immediate blocking.
 */
 
@@ -70,7 +70,7 @@ func testBuffer(t *testing.T, msg, smsg string, local Connection, remote []Conne
 			for i := 0; i < buf; i++ {
 				select {
 				case <-r.Receive():
-				case <-time.After(time.Millisecond):
+				case <-time.After(120 * time.Millisecond):
 					t.Error(errmsg(msg, smsg, "failed to buffer messages"))
 				}
 			}
@@ -98,8 +98,8 @@ func testTimeout(t *testing.T, msg, smsg string, local Connection, remote []Conn
 		} else if !ok {
 			t.Error(errmsg(msg, smsg, "invalid error"))
 		}
-	case <-time.After(2 * timeout):
-		t.Error(msg+";", "timeout failed")
+	case <-time.After(120 * time.Millisecond):
+		t.Error(errmsg(msg, smsg, "timeout failed"))
 	}
 }
 
@@ -126,8 +126,8 @@ func testBufferAndTimeout(t *testing.T, msg, smsg string, local Connection, remo
 		if _, ok := err.(*TimeoutError); !ok {
 			t.Error(errmsg(msg, smsg, "invalid error"))
 		}
-	case <-time.After(2 * timeout):
-		t.Error(msg+";", "timeout failed")
+	case <-time.After(120 * time.Millisecond):
+		t.Error(errmsg(msg, smsg, "timeout failed"))
 	}
 }
 
@@ -150,7 +150,7 @@ func testClose(t *testing.T, msg, smsg string, local Connection, remote []Connec
 				if open {
 					t.Error(errmsg(msg, smsg, "failed to close channel"))
 				}
-			case <-time.After(time.Millisecond):
+			case <-time.After(120 * time.Millisecond):
 				t.Error(errmsg(msg, smsg, "failed to close channel"))
 			}
 		}(r)

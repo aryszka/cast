@@ -38,29 +38,29 @@ type node struct {
 // timeouts should be used only when leaking messages is fine,
 // otherwise buffers are recommended
 type Opt struct {
-	// send timeout to parent connection
-	ParentTimeout time.Duration
-
 	// send buffer to parent connection
 	ParentBuffer int
 
-	// send timeout to child connections
-	ChildTimeout time.Duration
+	// send timeout to parent connection
+	ParentTimeout time.Duration
 
 	// send buffer to child connections
 	ChildBuffer int
 
-	// timeout on Node.Send
-	SendTimeout time.Duration
+	// send timeout to child connections
+	ChildTimeout time.Duration
 
 	// buffer on Node.Send
 	SendBuffer int
 
-	// timeout on Node.Receive
-	ReceiveTimeout time.Duration
+	// timeout on Node.Send
+	SendTimeout time.Duration
 
 	// buffer on Node.Receive
 	ReceiveBuffer int
+
+	// timeout on Node.Receive
+	ReceiveTimeout time.Duration
 
 	// buffer on Node.Error
 	ErrorBuffer int
@@ -120,7 +120,7 @@ func NewNode() Node { return Opt{}.NewNode() }
 // if omitNode true, don't send it onto Node.Receive
 // don't send it connections listed as to omit
 func (n *node) dispatchMessage(m *Message, omitNode bool, omit ...Connection) {
-	omitContains := func(c Connection) bool {
+	omitConnection := func(c Connection) bool {
 		for _, ci := range omit {
 			if c == ci {
 				return true
@@ -130,12 +130,12 @@ func (n *node) dispatchMessage(m *Message, omitNode bool, omit ...Connection) {
 		return false
 	}
 
-	if n.parent != nil && !omitContains(n.parent) {
+	if n.parent != nil && !omitConnection(n.parent) {
 		n.parent.Send() <- m
 	}
 
 	for _, c := range n.children {
-		if !omitContains(c) {
+		if !omitConnection(c) {
 			c.Send() <- m
 		}
 	}
