@@ -221,3 +221,38 @@ func testMessageChannel(t *testing.T, msg string, mc makeChannel) {
 		ti.tf(t, msg, ti.msg, local, remote)
 	}
 }
+
+func benchmarkStep(local Connection, remote []Connection) {
+	go func() { local.Send() <- &Message{} }()
+	for _, r := range remote {
+		<-r.Receive()
+	}
+}
+
+func benchmarkMessageChannel(b *testing.B, msg string, mc makeChannel) {
+	local, remote := mc(0, 0)
+	for i := 0; i < b.N; i++ {
+		benchmarkStep(local, remote)
+	}
+}
+
+func benchmarkMessageChannelBuffered(b *testing.B, msg string, mc makeChannel) {
+	local, remote := mc(64, 0)
+	for i := 0; i < b.N; i++ {
+		benchmarkStep(local, remote)
+	}
+}
+
+func benchmarkMessageChannelTimeout(b *testing.B, msg string, mc makeChannel) {
+	local, remote := mc(0, 42*time.Millisecond)
+	for i := 0; i < b.N; i++ {
+		benchmarkStep(local, remote)
+	}
+}
+
+func benchmarkMessageChannelBufferedTimeout(b *testing.B, msg string, mc makeChannel) {
+	local, remote := mc(64, 42*time.Millisecond)
+	for i := 0; i < b.N; i++ {
+		benchmarkStep(local, remote)
+	}
+}

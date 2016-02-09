@@ -11,6 +11,8 @@ import (
 // error channel always blocking
 type MessageChannel chan *Message
 
+type InProcListener chan Connection
+
 type inProcConnection struct {
 	local  chan *Message
 	remote *inProcConnection
@@ -27,6 +29,11 @@ type bufferedConnection struct {
 	err        chan error
 }
 
+type timeoutMessage struct {
+	message *Message
+	timeout chan struct{}
+}
+
 type timeoutConnection struct {
 	connection Connection
 	send       chan<- *Message
@@ -36,6 +43,8 @@ type timeoutConnection struct {
 func (c MessageChannel) Send() chan<- *Message    { return c }
 func (c MessageChannel) Receive() <-chan *Message { return c }
 func (c MessageChannel) Error() <-chan error      { return nil }
+
+func (l InProcListener) Connections() <-chan Connection { return l }
 
 // creates a symmetric connection
 // representing an in-process communication channel
@@ -90,11 +99,6 @@ func NewBufferedConnection(c Connection, size int) Connection {
 func (c *bufferedConnection) Send() chan<- *Message    { return c.send }
 func (c *bufferedConnection) Receive() <-chan *Message { return c.connection.Receive() }
 func (c *bufferedConnection) Error() <-chan error      { return c.err }
-
-type timeoutMessage struct {
-	message *Message
-	timeout chan struct{}
-}
 
 // wraps a connection with send timeout
 // takes ownership of the connection regarding closing

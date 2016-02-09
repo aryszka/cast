@@ -24,7 +24,7 @@ type control struct {
 type node struct {
 	opt           Opt
 	control       chan control
-	listener      Listener
+	connections   <-chan Connection
 	children      []Connection
 	parent        Connection
 	parentReceive <-chan *Message
@@ -163,17 +163,17 @@ func (n *node) join(c Connection) {
 
 // listen for child connections
 func (n *node) listen(l Listener) error {
-	if n.listener != nil {
+	if n.connections != nil {
 		panic("already listening")
 	}
 
-	n.listener = l
+	n.connections = l.Connections()
 	return nil
 }
 
 // stops listening and closes child connections
 func (n *node) stopListening() {
-	n.listener = nil
+	n.connections = nil
 	n.closeChildren()
 }
 
@@ -282,7 +282,7 @@ func (n *node) run() {
 			}
 
 			n.dispatchMessage(m, true)
-		case c, open := <-n.listener:
+		case c, open := <-n.connections:
 			if !open {
 				n.stopListening()
 			} else {

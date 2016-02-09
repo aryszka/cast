@@ -68,7 +68,9 @@ type Connection interface {
 // shall we add errors? no: should be handled by the creator
 // stop listening by closing this channel
 // node should also close the child connections
-type Listener <-chan Connection
+type Listener interface {
+	Connections() <-chan Connection
+}
 
 // minimal implementation
 // listen error? maybe it should be a panic
@@ -93,9 +95,6 @@ type Node interface {
 // error sent when parent is disconnected
 var ErrDisconnected = errors.New("disconnected")
 
-// test skipping in-proc connection, or the model of nodes only? is the full implementation of a node too
-// difficult? yes, due to the dispatching
-// update the listener interface
 // benchmark all
 // self healing network
 // sockets
