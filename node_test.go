@@ -343,3 +343,41 @@ func TestCloseNode(t *testing.T) {
 	close(n.Send())
 	wg.Wait()
 }
+
+func TestStopListening(t *testing.T) {
+	n := NewNode()
+	l := make(chan Connection)
+	n.Listen(l)
+
+	var children []Connection
+	makeChild := func() {
+		clocal, cremote := NewInProcConnection()
+		l <- clocal
+		children = append(children, cremote)
+	}
+
+	makeChild()
+	makeChild()
+	makeChild()
+
+	var wg sync.WaitGroup
+	wg.Add(len(children))
+
+	for _, c := range children {
+		go func(c Connection) {
+			select {
+			case _, open := <-c.Receive():
+				if open {
+					t.Error("failed to disconnect from closed node")
+				}
+			case <-time.After(120 * time.Millisecond):
+				t.Error("failed to disconnect from closed node")
+			}
+
+			wg.Done()
+		}(c)
+	}
+
+	close(l)
+	wg.Wait()
+}

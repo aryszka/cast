@@ -20,7 +20,7 @@ network for cast based systems
 other network topologies can still comply with the cast communication
 model
 
-if the error channels are left out, mention them as a best practice
+close to notify failure
 */
 package cast
 
@@ -93,9 +93,11 @@ type Node interface {
 // error sent when parent is disconnected
 var ErrDisconnected = errors.New("disconnected")
 
-// fix timeout connection by splitting time
+// test skipping in-proc connection, or the model of nodes only? is the full implementation of a node too
+// difficult? yes, due to the dispatching
+// update the listener interface
 // benchmark all
-// document closing connections
 // self healing network
 // sockets
+// document all
 // write a cmd client
