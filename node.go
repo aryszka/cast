@@ -18,7 +18,7 @@ type control struct {
 	typ        controlType
 	listener   Listener
 	connection Connection
-	message    *Message
+	message    Message
 }
 
 type node struct {
@@ -27,7 +27,7 @@ type node struct {
 	connections   <-chan Connection
 	children      []Connection
 	parent        Connection
-	parentReceive <-chan *Message
+	parentReceive <-chan Message
 	parentError   <-chan error
 	send          Connection
 	receive       Connection
@@ -101,25 +101,27 @@ func makeTimeoutBufferConnection(buffer int, timeout time.Duration, ec chan erro
 }
 
 // create a Node with the provided options
-func (o Opt) NewNode() Node {
-	err := make(chan error, o.ErrorBuffer)
+func NewNode(o *Opt) Node {
+	var ov Opt
+	if o != nil {
+		ov = *o
+	}
+
+	err := make(chan error, ov.ErrorBuffer)
 	n := &node{
-		opt:     o,
+		opt:     ov,
 		control: make(chan control),
-		send:    makeTimeoutBufferConnection(o.SendBuffer, o.SendTimeout, err),
-		receive: makeTimeoutBufferConnection(o.ReceiveBuffer, o.ReceiveTimeout, err),
+		send:    makeTimeoutBufferConnection(ov.SendBuffer, ov.SendTimeout, err),
+		receive: makeTimeoutBufferConnection(ov.ReceiveBuffer, ov.ReceiveTimeout, err),
 		errors:  err}
 	go n.run()
 	return n
 }
 
-// create a Node without buffering or timeout
-func NewNode() Node { return Opt{}.NewNode() }
-
 // dispatch a message
 // if omitNode true, don't send it onto Node.Receive
 // don't send it connections listed as to omit
-func (n *node) dispatchMessage(m *Message, omitNode bool, omit ...Connection) {
+func (n *node) dispatchMessage(m Message, omitNode bool, omit ...Connection) {
 	omitConnection := func(c Connection) bool {
 		for _, ci := range omit {
 			if c == ci {
@@ -292,8 +294,8 @@ func (n *node) run() {
 	}
 }
 
-func (n *node) Listen(l Listener)        { n.control <- control{typ: listen, listener: l} }
-func (n *node) Join(c Connection)        { n.control <- control{typ: join, connection: c} }
-func (n *node) Send() chan<- *Message    { return n.send.Send() }
-func (n *node) Receive() <-chan *Message { return n.receive.Receive() }
-func (n *node) Error() <-chan error      { return n.errors }
+func (n *node) Listen(l Listener)       { n.control <- control{typ: listen, listener: l} }
+func (n *node) Join(c Connection)       { n.control <- control{typ: join, connection: c} }
+func (n *node) Send() chan<- Message    { return n.send.Send() }
+func (n *node) Receive() <-chan Message { return n.receive.Receive() }
+func (n *node) Error() <-chan error     { return n.errors }

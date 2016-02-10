@@ -9,40 +9,40 @@ import (
 // simple channel implementing the connection interface
 // one direction
 // error channel always blocking
-type MessageChannel chan *Message
+type MessageChannel chan Message
 
 type InProcListener chan Connection
 
 type inProcConnection struct {
-	local  chan *Message
+	local  chan Message
 	remote *inProcConnection
 }
 
 // error send in case of a timeout on a connection that handles it
 type TimeoutError struct {
-	Message *Message
+	Message Message
 }
 
 type bufferedConnection struct {
-	send       chan *Message
+	send       chan Message
 	connection Connection
 	err        chan error
 }
 
 type timeoutMessage struct {
-	message *Message
+	message Message
 	timeout chan struct{}
 }
 
 type timeoutConnection struct {
 	connection Connection
-	send       chan<- *Message
+	send       chan<- Message
 	err        chan error
 }
 
-func (c MessageChannel) Send() chan<- *Message    { return c }
-func (c MessageChannel) Receive() <-chan *Message { return c }
-func (c MessageChannel) Error() <-chan error      { return nil }
+func (c MessageChannel) Send() chan<- Message    { return c }
+func (c MessageChannel) Receive() <-chan Message { return c }
+func (c MessageChannel) Error() <-chan error     { return nil }
 
 func (l InProcListener) Connections() <-chan Connection { return l }
 
@@ -50,16 +50,16 @@ func (l InProcListener) Connections() <-chan Connection { return l }
 // representing an in-process communication channel
 // error channel always blocking
 func NewInProcConnection() (Connection, Connection) {
-	local := &inProcConnection{local: make(chan *Message)}
-	remote := &inProcConnection{local: make(chan *Message)}
+	local := &inProcConnection{local: make(chan Message)}
+	remote := &inProcConnection{local: make(chan Message)}
 	local.remote = remote
 	remote.remote = local
 	return local, remote
 }
 
-func (c *inProcConnection) Send() chan<- *Message    { return c.local }
-func (c *inProcConnection) Receive() <-chan *Message { return c.remote.local }
-func (c *inProcConnection) Error() <-chan error      { return nil }
+func (c *inProcConnection) Send() chan<- Message    { return c.local }
+func (c *inProcConnection) Receive() <-chan Message { return c.remote.local }
+func (c *inProcConnection) Error() <-chan error     { return nil }
 
 func (e *TimeoutError) Error() string {
 	return fmt.Sprintf(
@@ -96,9 +96,9 @@ func NewBufferedConnection(c Connection, size int) Connection {
 	return &bufferedConnection{send, c, ec}
 }
 
-func (c *bufferedConnection) Send() chan<- *Message    { return c.send }
-func (c *bufferedConnection) Receive() <-chan *Message { return c.connection.Receive() }
-func (c *bufferedConnection) Error() <-chan error      { return c.err }
+func (c *bufferedConnection) Send() chan<- Message    { return c.send }
+func (c *bufferedConnection) Receive() <-chan Message { return c.connection.Receive() }
+func (c *bufferedConnection) Error() <-chan error     { return c.err }
 
 // wraps a connection with send timeout
 // takes ownership of the connection regarding closing
@@ -112,14 +112,14 @@ func (c *bufferedConnection) Error() <-chan error      { return c.err }
 // This connection trades in memory for time, therefore it can cause
 // unpredictable behavior.
 func NewTimeoutConnection(c Connection, t time.Duration) Connection {
-	send := make(chan *Message)
+	send := make(chan Message)
 	ec := make(chan error)
 
 	go func() {
 		var (
-			forward chan<- *Message
+			forward chan<- Message
 			ctm     *timeoutMessage
-			cm      *Message
+			cm      Message
 			cto     <-chan struct{}
 			tms     []*timeoutMessage
 		)
@@ -169,6 +169,6 @@ func NewTimeoutConnection(c Connection, t time.Duration) Connection {
 	return &timeoutConnection{c, send, ec}
 }
 
-func (c *timeoutConnection) Send() chan<- *Message    { return c.send }
-func (c *timeoutConnection) Receive() <-chan *Message { return c.connection.Receive() }
-func (c *timeoutConnection) Error() <-chan error      { return c.err }
+func (c *timeoutConnection) Send() chan<- Message    { return c.send }
+func (c *timeoutConnection) Receive() <-chan Message { return c.connection.Receive() }
+func (c *timeoutConnection) Error() <-chan error     { return c.err }

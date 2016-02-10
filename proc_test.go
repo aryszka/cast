@@ -8,9 +8,9 @@ import (
 
 type failingConnection chan error
 
-func (c failingConnection) Send() chan<- *Message    { return nil }
-func (c failingConnection) Receive() <-chan *Message { return nil }
-func (c failingConnection) Error() <-chan error      { return c }
+func (c failingConnection) Send() chan<- Message    { return nil }
+func (c failingConnection) Receive() <-chan Message { return nil }
+func (c failingConnection) Error() <-chan error     { return c }
 
 func makeMessageChannel(buffer int, timeout time.Duration) (Connection, []Connection) {
 	mc := make(MessageChannel, buffer)

@@ -2,6 +2,7 @@ package cast
 
 import (
 	"fmt"
+	"github.com/aryszka/keyval"
 	"strconv"
 	"sync"
 	"testing"
@@ -24,11 +25,11 @@ func errmsg(msg, smsg, ssmsg string) string {
 }
 
 func testSend(t *testing.T, msg, smsg string, local Connection, remote []Connection) {
-	m := &Message{}
+	m := Message{}
 	go func() { local.Send() <- m }()
 	for _, r := range remote {
 		mr := <-r.Receive()
-		if mr != m {
+		if !keyval.KeyEq(mr.Key, m.Key) || mr.Val != m.Val {
 			t.Error(errmsg(msg, smsg, "failed to send message"))
 		}
 	}
@@ -57,7 +58,7 @@ func testBuffer(t *testing.T, msg, smsg string, local Connection, remote []Conne
 	const buf = 3
 
 	for i := 0; i < buf; i++ {
-		local.Send() <- &Message{}
+		local.Send() <- Message{}
 	}
 
 	var wg sync.WaitGroup
@@ -89,11 +90,11 @@ func testTimeout(t *testing.T, msg, smsg string, local Connection, remote []Conn
 		}
 	}
 
-	m := &Message{}
+	m := Message{}
 	go func() { local.Send() <- m }()
 	select {
 	case err := <-local.Error():
-		if terr, ok := err.(*TimeoutError); ok && terr.Message != m {
+		if terr, ok := err.(*TimeoutError); ok && (!keyval.KeyEq(terr.Message.Key, m.Key) || terr.Message.Val != m.Val) {
 			t.Error(errmsg(msg, smsg, "invalid message in timeout error"))
 		} else if !ok {
 			t.Error(errmsg(msg, smsg, "invalid error"))
@@ -117,7 +118,7 @@ func testBufferAndTimeout(t *testing.T, msg, smsg string, local Connection, remo
 
 	go func() {
 		for {
-			local.Send() <- &Message{}
+			local.Send() <- Message{}
 		}
 	}()
 
@@ -164,7 +165,7 @@ func testOrder(t *testing.T, msg, smsg string, local Connection, remote []Connec
 
 	go func() {
 		for i := 0; i < 3; i++ {
-			local.Send() <- &Message{Val: strconv.Itoa(i)}
+			local.Send() <- Message{Val: strconv.Itoa(i)}
 		}
 
 		close(local.Send())
@@ -177,10 +178,10 @@ func testOrder(t *testing.T, msg, smsg string, local Connection, remote []Connec
 		go func(r Connection) {
 			defer wg.Done()
 
-			var prev *Message
+			var prev Message
 			for i := 0; i < count; i++ {
 				next := <-r.Receive()
-				if prev != nil && next.Val <= prev.Val {
+				if next.Val <= prev.Val {
 					t.Error(errmsg(msg, smsg, "failed to send messages in the right order"))
 					return
 				}
@@ -223,7 +224,7 @@ func testMessageChannel(t *testing.T, msg string, mc makeChannel) {
 }
 
 func benchmarkStep(local Connection, remote []Connection) {
-	go func() { local.Send() <- &Message{} }()
+	go func() { local.Send() <- Message{} }()
 	for _, r := range remote {
 		<-r.Receive()
 	}

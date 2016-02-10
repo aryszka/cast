@@ -21,6 +21,11 @@ other network topologies can still comply with the cast communication
 model
 
 close to notify failure
+
+the in-proc types are to be used with care, because the go channel and
+goroutine primitives provide a better representation of the same concept
+
+unifies in-process and network communication
 */
 package cast
 
@@ -60,8 +65,8 @@ type Message keyval.Entry
 //
 // error handling asynchronous
 type Connection interface {
-	Send() chan<- *Message
-	Receive() <-chan *Message
+	Send() chan<- Message
+	Receive() <-chan Message
 	Error() <-chan error
 }
 
@@ -70,6 +75,11 @@ type Connection interface {
 // node should also close the child connections
 type Listener interface {
 	Connections() <-chan Connection
+}
+
+// represents an interface where it is possible to connect to
+type Interface interface {
+	Connect() (Connection, error)
 }
 
 // minimal implementation
@@ -95,8 +105,11 @@ type Node interface {
 // error sent when parent is disconnected
 var ErrDisconnected = errors.New("disconnected")
 
-// benchmark all
 // self healing network
+// - circular connections: by enforcing tree structure or marking messages with sender address
+// - what does address translation mean for this, how to identify a node?
+// - message loss from parent to child
+// - need a concept of the address, address space
 // sockets
 // document all
 // write a cmd client

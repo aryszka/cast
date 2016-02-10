@@ -1,6 +1,7 @@
 package cast
 
 import (
+	"github.com/aryszka/keyval"
 	"sync"
 	"testing"
 	"time"
@@ -9,9 +10,9 @@ import (
 func waitBuffer(t *testing.T, c Connection) {
 	done := make(chan struct{})
 	go func() {
-		c.Send() <- &Message{}
-		c.Send() <- &Message{}
-		c.Send() <- &Message{}
+		c.Send() <- Message{}
+		c.Send() <- Message{}
+		c.Send() <- Message{}
 		close(done)
 	}()
 
@@ -23,7 +24,7 @@ func waitBuffer(t *testing.T, c Connection) {
 }
 
 func waitTimeout(t *testing.T, c, ec Connection) {
-	m := &Message{}
+	m := Message{}
 
 	done := make(chan struct{})
 	go func() {
@@ -38,7 +39,7 @@ func waitTimeout(t *testing.T, c, ec Connection) {
 
 	select {
 	case err := <-ec.Error():
-		if terr, ok := err.(*TimeoutError); !ok || ok && terr.Message != m {
+		if terr, ok := err.(*TimeoutError); !ok || ok && (!keyval.KeyEq(terr.Message.Key, m.Key) || terr.Message.Val != m.Val) {
 			t.Error("failed to apply timeout")
 		}
 	case <-time.After(120 * time.Millisecond):
@@ -49,21 +50,21 @@ func waitTimeout(t *testing.T, c, ec Connection) {
 }
 
 func makeNodeToParent(buffer int, timeout time.Duration) (Connection, []Connection) {
-	n := Opt{ParentBuffer: buffer, ParentTimeout: timeout}.NewNode()
+	n := NewNode(&Opt{ParentBuffer: buffer, ParentTimeout: timeout})
 	local, remote := NewInProcConnection()
 	n.Join(local)
 	return n, []Connection{remote}
 }
 
 func makeParentToNode(buffer int, timeout time.Duration) (Connection, []Connection) {
-	n := Opt{ReceiveBuffer: buffer}.NewNode()
+	n := NewNode(&Opt{ReceiveBuffer: buffer})
 	local, remote := NewInProcConnection()
 	n.Join(local)
 	return remote, []Connection{n}
 }
 
 func makeNodeToChildren(buffer int, timeout time.Duration) (Connection, []Connection) {
-	n := Opt{ChildBuffer: buffer, ChildTimeout: timeout}.NewNode()
+	n := NewNode(&Opt{ChildBuffer: buffer, ChildTimeout: timeout})
 	l := make(InProcListener)
 	n.Listen(l)
 
@@ -79,7 +80,7 @@ func makeNodeToChildren(buffer int, timeout time.Duration) (Connection, []Connec
 }
 
 func makeNodesParentToEveryone(buffer int, _ time.Duration) (Connection, []Connection) {
-	p := Opt{SendBuffer: buffer}.NewNode()
+	p := NewNode(&Opt{SendBuffer: buffer})
 	l := make(InProcListener)
 	p.Listen(l)
 
@@ -87,7 +88,7 @@ func makeNodesParentToEveryone(buffer int, _ time.Duration) (Connection, []Conne
 	makeChild := func() {
 		local, remote := NewInProcConnection()
 		l <- remote
-		c := NewNode()
+		c := NewNode(nil)
 		c.Join(local)
 		nodes = append(nodes, c)
 	}
@@ -100,7 +101,7 @@ func makeNodesParentToEveryone(buffer int, _ time.Duration) (Connection, []Conne
 }
 
 func makeNodesChildToEveryone(buffer int, _ time.Duration) (Connection, []Connection) {
-	p := Opt{SendBuffer: buffer}.NewNode()
+	p := NewNode(&Opt{SendBuffer: buffer})
 	l := make(InProcListener)
 	p.Listen(l)
 
@@ -108,7 +109,7 @@ func makeNodesChildToEveryone(buffer int, _ time.Duration) (Connection, []Connec
 	makeChild := func() {
 		local, remote := NewInProcConnection()
 		l <- remote
-		c := NewNode()
+		c := NewNode(nil)
 		c.Join(local)
 		nodes = append(nodes, c)
 	}
@@ -223,21 +224,21 @@ func BenchmarkNodesChildToEveryoneBufferedTimeout(b *testing.B) {
 }
 
 func TestParentBuffer(t *testing.T) {
-	n := Opt{ParentBuffer: 3}.NewNode()
+	n := NewNode(&Opt{ParentBuffer: 3})
 	c, _ := NewInProcConnection()
 	n.Join(c)
 	waitBuffer(t, n)
 }
 
 func TestParentTimeout(t *testing.T) {
-	n := Opt{ParentTimeout: time.Millisecond}.NewNode()
+	n := NewNode(&Opt{ParentTimeout: time.Millisecond})
 	c, _ := NewInProcConnection()
 	n.Join(c)
 	waitTimeout(t, n, n)
 }
 
 func TestChildBuffer(t *testing.T) {
-	n := Opt{ChildBuffer: 3}.NewNode()
+	n := NewNode(&Opt{ChildBuffer: 3})
 	l := make(InProcListener)
 	n.Listen(l)
 	c, _ := NewInProcConnection()
@@ -246,7 +247,7 @@ func TestChildBuffer(t *testing.T) {
 }
 
 func TestChildTimeout(t *testing.T) {
-	n := Opt{ChildTimeout: time.Millisecond}.NewNode()
+	n := NewNode(&Opt{ChildTimeout: time.Millisecond})
 	l := make(InProcListener)
 	n.Listen(l)
 	c, _ := NewInProcConnection()
@@ -255,28 +256,28 @@ func TestChildTimeout(t *testing.T) {
 }
 
 func TestSendBuffer(t *testing.T) {
-	n := Opt{SendBuffer: 3}.NewNode()
+	n := NewNode(&Opt{SendBuffer: 3})
 	c, _ := NewInProcConnection()
 	n.Join(c)
 	waitBuffer(t, n)
 }
 
 func TestSendTimeout(t *testing.T) {
-	n := Opt{SendTimeout: time.Millisecond}.NewNode()
+	n := NewNode(&Opt{SendTimeout: time.Millisecond})
 	c, _ := NewInProcConnection()
 	n.Join(c)
 	waitTimeout(t, n, n)
 }
 
 func TestReceiveBuffer(t *testing.T) {
-	n := Opt{ReceiveBuffer: 3}.NewNode()
+	n := NewNode(&Opt{ReceiveBuffer: 3})
 	local, remote := NewInProcConnection()
 	n.Join(local)
 	waitBuffer(t, remote)
 }
 
 func TestReceiveTimeout(t *testing.T) {
-	n := Opt{ReceiveTimeout: time.Millisecond}.NewNode()
+	n := NewNode(&Opt{ReceiveTimeout: time.Millisecond})
 	local, remote := NewInProcConnection()
 	n.Join(local)
 	waitTimeout(t, remote, n)
@@ -302,7 +303,7 @@ func TestDispatch(t *testing.T) {
 		"child 2",
 		func(_ Connection, _ Connection, c []Connection) Connection { return c[2] },
 	}} {
-		n := NewNode()
+		n := NewNode(nil)
 		plocal, premote := NewInProcConnection()
 		n.Join(plocal)
 		l := make(InProcListener)
@@ -349,7 +350,7 @@ func TestDispatch(t *testing.T) {
 			close(done)
 		}()
 
-		source.Send() <- &Message{}
+		source.Send() <- Message{}
 
 		select {
 		case <-done:
@@ -360,7 +361,7 @@ func TestDispatch(t *testing.T) {
 }
 
 func TestParentDisconnect(t *testing.T) {
-	n := NewNode()
+	n := NewNode(nil)
 	local, remote := NewInProcConnection()
 	n.Join(local)
 	close(remote.Send())
@@ -375,7 +376,7 @@ func TestParentDisconnect(t *testing.T) {
 }
 
 func TestChildDisconnect(t *testing.T) {
-	n := NewNode()
+	n := NewNode(nil)
 	l := make(InProcListener)
 	n.Listen(l)
 
@@ -394,7 +395,7 @@ func TestChildDisconnect(t *testing.T) {
 }
 
 func TestCloseNode(t *testing.T) {
-	n := NewNode()
+	n := NewNode(nil)
 	plocal, premote := NewInProcConnection()
 	n.Join(plocal)
 	l := make(InProcListener)
@@ -435,7 +436,7 @@ func TestCloseNode(t *testing.T) {
 }
 
 func TestStopListening(t *testing.T) {
-	n := NewNode()
+	n := NewNode(nil)
 	l := make(InProcListener)
 	n.Listen(l)
 
