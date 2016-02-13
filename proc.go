@@ -42,9 +42,16 @@ type timeoutConnection struct {
 
 func (c MessageChannel) Send() chan<- Message    { return c }
 func (c MessageChannel) Receive() <-chan Message { return c }
-func (c MessageChannel) Error() <-chan error     { return nil }
 
 func (l InProcListener) Connections() <-chan Connection { return l }
+
+// doesn't return an error.
+// blocks until listener connections are received
+func (l InProcListener) Connect() (Connection, error) {
+    local, remote := NewInProcConnection()
+    l <- remote
+    return local, nil
+}
 
 // creates a symmetric connection
 // representing an in-process communication channel
@@ -59,7 +66,6 @@ func NewInProcConnection() (Connection, Connection) {
 
 func (c *inProcConnection) Send() chan<- Message    { return c.local }
 func (c *inProcConnection) Receive() <-chan Message { return c.remote.local }
-func (c *inProcConnection) Error() <-chan error     { return nil }
 
 func (e *TimeoutError) Error() string {
 	return fmt.Sprintf(
@@ -83,12 +89,12 @@ func NewBufferedConnection(c Connection, size int) Connection {
 				}
 
 				c.Send() <- m
-			case err, open := <-c.Error():
-				if open {
-					ec <- err
-				} else {
-					panic("error channel closed")
-				}
+			// case err, open := <-c.Error():
+			// 	if open {
+			// 		ec <- err
+			// 	} else {
+			// 		panic("error channel closed")
+			// 	}
 			}
 		}
 	}()
@@ -156,12 +162,12 @@ func NewTimeoutConnection(c Connection, t time.Duration) Connection {
 			case <-cto:
 				ec <- &TimeoutError{ctm.message}
 				ctm = nil
-			case err, open := <-c.Error():
-				if open {
-					ec <- err
-				} else {
-					panic("error channel closed")
-				}
+			// case err, open := <-c.Error():
+			// 	if open {
+			// 		ec <- err
+			// 	} else {
+			// 		panic("error channel closed")
+			// 	}
 			}
 		}
 	}()

@@ -1,7 +1,6 @@
 package cast
 
 import (
-	"github.com/aryszka/keyval"
 	"sync"
 	"testing"
 	"time"
@@ -38,10 +37,10 @@ func waitTimeout(t *testing.T, c, ec Connection) {
 	}()
 
 	select {
-	case err := <-ec.Error():
-		if terr, ok := err.(*TimeoutError); !ok || ok && (!keyval.KeyEq(terr.Message.Key, m.Key) || terr.Message.Val != m.Val) {
-			t.Error("failed to apply timeout")
-		}
+	// case err := <-ec.Error():
+	// 	if terr, ok := err.(*TimeoutError); !ok || ok && (!keyval.KeyEq(terr.Message.Key, m.Key) || terr.Message.Val != m.Val) {
+	// 		t.Error("failed to apply timeout")
+	// 	}
 	case <-time.After(120 * time.Millisecond):
 		t.Error("failed to apply timeout")
 	}
@@ -68,15 +67,11 @@ func makeNodeToChildren(buffer int, timeout time.Duration) (Connection, []Connec
 	l := make(InProcListener)
 	n.Listen(l)
 
-	l0, r0 := NewInProcConnection()
-	l1, r1 := NewInProcConnection()
-	l2, r2 := NewInProcConnection()
+	c0, _ := l.Connect()
+	c1, _ := l.Connect()
+	c2, _ := l.Connect()
 
-	l <- l0
-	l <- l1
-	l <- l2
-
-	return n, []Connection{r0, r1, r2}
+	return n, []Connection{c0, c1, c2}
 }
 
 func makeNodesParentToEveryone(buffer int, _ time.Duration) (Connection, []Connection) {
@@ -86,10 +81,9 @@ func makeNodesParentToEveryone(buffer int, _ time.Duration) (Connection, []Conne
 
 	var nodes []Connection
 	makeChild := func() {
-		local, remote := NewInProcConnection()
-		l <- remote
+        pc, _ := l.Connect()
 		c := NewNode(nil)
-		c.Join(local)
+		c.Join(pc)
 		nodes = append(nodes, c)
 	}
 
@@ -107,10 +101,9 @@ func makeNodesChildToEveryone(buffer int, _ time.Duration) (Connection, []Connec
 
 	var nodes []Connection
 	makeChild := func() {
-		local, remote := NewInProcConnection()
-		l <- remote
+        pc, _ := l.Connect()
 		c := NewNode(nil)
-		c.Join(local)
+		c.Join(pc)
 		nodes = append(nodes, c)
 	}
 
@@ -311,9 +304,8 @@ func TestDispatch(t *testing.T) {
 
 		var children []Connection
 		makeChild := func() {
-			clocal, cremote := NewInProcConnection()
-			l <- clocal
-			children = append(children, cremote)
+            pc, _ := l.Connect()
+			children = append(children, pc)
 		}
 
 		makeChild()
@@ -380,12 +372,10 @@ func TestChildDisconnect(t *testing.T) {
 	l := make(InProcListener)
 	n.Listen(l)
 
-	local, remote := NewInProcConnection()
-	l <- local
-
-	close(remote.Send())
+    pc, _ := l.Connect()
+	close(pc.Send())
 	select {
-	case _, open := <-remote.Receive():
+	case _, open := <-pc.Receive():
 		if open {
 			t.Error("failed to disconnect")
 		}
@@ -403,9 +393,8 @@ func TestCloseNode(t *testing.T) {
 
 	var children []Connection
 	makeChild := func() {
-		clocal, cremote := NewInProcConnection()
-		l <- clocal
-		children = append(children, cremote)
+        pc, _ := l.Connect()
+		children = append(children, pc)
 	}
 
 	makeChild()
@@ -442,9 +431,8 @@ func TestStopListening(t *testing.T) {
 
 	var children []Connection
 	makeChild := func() {
-		clocal, cremote := NewInProcConnection()
-		l <- clocal
-		children = append(children, cremote)
+        pc, _ := l.Connect()
+		children = append(children, pc)
 	}
 
 	makeChild()

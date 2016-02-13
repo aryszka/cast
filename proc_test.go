@@ -115,12 +115,12 @@ func TestBufferedConnectionForwardsError(t *testing.T) {
 	fc := make(failingConnection)
 	err := errors.New("test error")
 	go func() { fc <- err }()
-	bc := NewBufferedConnection(fc, 0)
+	/*bc := */NewBufferedConnection(fc, 0)
 	select {
-	case errBack := <-bc.Error():
-		if errBack != err {
-			t.Error("failed to forward error")
-		}
+	// case errBack := <-bc.Error():
+	// 	if errBack != err {
+	// 		t.Error("failed to forward error")
+	// 	}
 	case <-time.After(120 * time.Millisecond):
 		t.Error("failed to forward error")
 	}
@@ -130,12 +130,12 @@ func TestTimeoutConnectionForwardsError(t *testing.T) {
 	fc := make(failingConnection)
 	err := errors.New("test error")
 	go func() { fc <- err }()
-	bc := NewTimeoutConnection(fc, 0)
+	/*bc := */NewTimeoutConnection(fc, 0)
 	select {
-	case errBack := <-bc.Error():
-		if errBack != err {
-			t.Error("failed to forward error")
-		}
+	// case errBack := <-bc.Error():
+	// 	if errBack != err {
+	// 		t.Error("failed to forward error")
+	// 	}
 	case <-time.After(120 * time.Millisecond):
 		t.Error("failed to forward error")
 	}

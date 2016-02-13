@@ -93,12 +93,12 @@ func testTimeout(t *testing.T, msg, smsg string, local Connection, remote []Conn
 	m := Message{}
 	go func() { local.Send() <- m }()
 	select {
-	case err := <-local.Error():
-		if terr, ok := err.(*TimeoutError); ok && (!keyval.KeyEq(terr.Message.Key, m.Key) || terr.Message.Val != m.Val) {
-			t.Error(errmsg(msg, smsg, "invalid message in timeout error"))
-		} else if !ok {
-			t.Error(errmsg(msg, smsg, "invalid error"))
-		}
+	// case err := <-local.Error():
+	// 	if terr, ok := err.(*TimeoutError); ok && (!keyval.KeyEq(terr.Message.Key, m.Key) || terr.Message.Val != m.Val) {
+	// 		t.Error(errmsg(msg, smsg, "invalid message in timeout error"))
+	// 	} else if !ok {
+	// 		t.Error(errmsg(msg, smsg, "invalid error"))
+	// 	}
 	case <-time.After(120 * time.Millisecond):
 		t.Error(errmsg(msg, smsg, "timeout failed"))
 	}
@@ -123,10 +123,10 @@ func testBufferAndTimeout(t *testing.T, msg, smsg string, local Connection, remo
 	}()
 
 	select {
-	case err := <-local.Error():
-		if _, ok := err.(*TimeoutError); !ok {
-			t.Error(errmsg(msg, smsg, "invalid error"))
-		}
+	// case err := <-local.Error():
+	// 	if _, ok := err.(*TimeoutError); !ok {
+	// 		t.Error(errmsg(msg, smsg, "invalid error"))
+	// 	}
 	case <-time.After(120 * time.Millisecond):
 		t.Error(errmsg(msg, smsg, "timeout failed"))
 	}

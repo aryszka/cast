@@ -64,10 +64,12 @@ type Message keyval.Entry
 // it's an error to close the error channel
 //
 // error handling asynchronous
+//
+// closing by closing sender
+// detecting disconnect by receiving closed
 type Connection interface {
 	Send() chan<- Message
 	Receive() <-chan Message
-	Error() <-chan error
 }
 
 // shall we add errors? no: should be handled by the creator
@@ -78,8 +80,15 @@ type Listener interface {
 }
 
 // represents an interface where it is possible to connect to
+// how to extract an interface from a message?
 type Interface interface {
 	Connect() (Connection, error)
+}
+
+// ok, this is becoming enterprisy, stop here.
+// the reality cannot be like this
+type InterfaceTranslation interface {
+    Translate(Message) Interface
 }
 
 // minimal implementation
@@ -96,15 +105,33 @@ type Interface interface {
 // does not recieve its own messages
 // parent is the point where a node joins a network of nodes
 // takes over error reporting from connections
+// nodes are designed to be composable. they can add up to new node types,
+// or whole networks can represent a single node. provide examples of
+// composition primitives.
+// disconnected node blocking or non-blocking
+// node without any connections, parent or not, blocing or non-blocking
+// node cannot be blocking by default, because it can be a leaf node
 type Node interface {
 	Connection
 	Join(Connection)
 	Listen(Listener)
+	Error() <-chan error
 }
 
 // error sent when parent is disconnected
 var ErrDisconnected = errors.New("disconnected")
 
+// timeout: either remove from node or make it timeout when not dispatched, maybe
+// unify buffering, and let it up to the composition, how it is handled for different connections, maybe
+// maybe put a single buffered timeout connection as a buffer inside the node
+// node error routine never exits
+// should the node have an error at all? should the connection have an error?
+// no need to buffer the connection, the node should be buffered
+// one blocking connection cannot block other connections in a node, because that would block whole segments of
+// a network
+// ergo buffering is a must, timeout is a consequence, preserving system health needs to be implemented
+// node needs an internal outbox: default buffer size?
+// there should be no default buffer size
 // self healing network
 // - circular connections: by enforcing tree structure or marking messages with sender address
 // - what does address translation mean for this, how to identify a node?
@@ -113,3 +140,4 @@ var ErrDisconnected = errors.New("disconnected")
 // sockets
 // document all
 // write a cmd client
+// it is possible to implement full network recovery by introducing the concept of a network

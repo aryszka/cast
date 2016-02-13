@@ -28,7 +28,7 @@ type node struct {
 	children      []Connection
 	parent        Connection
 	parentReceive <-chan Message
-	parentError   <-chan error
+	// parentError   <-chan error
 	send          Connection
 	receive       Connection
 	errors        chan error
@@ -37,41 +37,22 @@ type node struct {
 // Node init options
 // timeouts should be used only when leaking messages is fine,
 // otherwise buffers are recommended
+// timeouts cannot be used as simple go timeouts, because
+// they don't necessarily block
 type Opt struct {
-	// send buffer to parent connection
-	ParentBuffer int
-
-	// send timeout to parent connection
-	ParentTimeout time.Duration
-
-	// send buffer to child connections
-	ChildBuffer int
-
-	// send timeout to child connections
-	ChildTimeout time.Duration
-
-	// buffer on Node.Send
-	SendBuffer int
-
-	// timeout on Node.Send
-	SendTimeout time.Duration
-
-	// buffer on Node.Receive
-	ReceiveBuffer int
-
-	// timeout on Node.Receive
-	ReceiveTimeout time.Duration
-
-	// buffer on Node.Error
-	ErrorBuffer int
+    Buffer int
+    Timeout time.Duration
 }
 
 // wrap a connection with timeout and send timeout errors to ec
 func connectionTimeout(c Connection, timeout time.Duration, ec chan error) Connection {
 	tc := NewTimeoutConnection(c, timeout)
 	go func() {
-		err := <-tc.Error()
-		ec <- err
+        // for {
+        //     // wrong never exits
+        //     err := <-tc.Error()
+        //     ec <- err
+        // }
 	}()
 
 	return tc
@@ -160,7 +141,7 @@ func (n *node) join(c Connection) {
 
 	n.parent = c
 	n.parentReceive = c.Receive()
-	n.parentError = c.Error()
+	// n.parentError = c.Error()
 }
 
 // listen for child connections
@@ -191,12 +172,12 @@ func (n *node) receiveFromChild(c Connection) {
 				n.control <- control{typ: removeChild, connection: c}
 				return
 			}
-		case err, open := <-c.Error():
-			if open {
-				n.errors <- err
-			} else {
-				panic("error channel closed")
-			}
+		// case err, open := <-c.Error():
+		// 	if open {
+		// 		n.errors <- err
+		// 	} else {
+		// 		panic("error channel closed")
+		// 	}
 		}
 	}
 }
@@ -271,12 +252,12 @@ func (n *node) run() {
 				n.errors <- ErrDisconnected
 				n.parentReceive = nil
 			}
-		case err, open := <-n.parentError:
-			if open {
-				n.errors <- err
-			} else {
-				panic("error channel closed")
-			}
+		// case err, open := <-n.parentError:
+		// 	if open {
+		// 		n.errors <- err
+		// 	} else {
+		// 		panic("error channel closed")
+		// 	}
 		case m, open := <-n.send.Receive():
 			if !open {
 				n.closeNode()
