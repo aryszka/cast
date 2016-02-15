@@ -48,9 +48,9 @@ func (l InProcListener) Connections() <-chan Connection { return l }
 // doesn't return an error.
 // blocks until listener connections are received
 func (l InProcListener) Connect() (Connection, error) {
-    local, remote := NewInProcConnection()
-    l <- remote
-    return local, nil
+	local, remote := NewInProcConnection()
+	l <- remote
+	return local, nil
 }
 
 // creates a symmetric connection
@@ -89,12 +89,12 @@ func NewBufferedConnection(c Connection, size int) Connection {
 				}
 
 				c.Send() <- m
-			// case err, open := <-c.Error():
-			// 	if open {
-			// 		ec <- err
-			// 	} else {
-			// 		panic("error channel closed")
-			// 	}
+				// case err, open := <-c.Error():
+				// 	if open {
+				// 		ec <- err
+				// 	} else {
+				// 		panic("error channel closed")
+				// 	}
 			}
 		}
 	}()
@@ -162,12 +162,12 @@ func NewTimeoutConnection(c Connection, t time.Duration) Connection {
 			case <-cto:
 				ec <- &TimeoutError{ctm.message}
 				ctm = nil
-			// case err, open := <-c.Error():
-			// 	if open {
-			// 		ec <- err
-			// 	} else {
-			// 		panic("error channel closed")
-			// 	}
+				// case err, open := <-c.Error():
+				// 	if open {
+				// 		ec <- err
+				// 	} else {
+				// 		panic("error channel closed")
+				// 	}
 			}
 		}
 	}()

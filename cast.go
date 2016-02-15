@@ -88,7 +88,7 @@ type Interface interface {
 // ok, this is becoming enterprisy, stop here.
 // the reality cannot be like this
 type InterfaceTranslation interface {
-    Translate(Message) Interface
+	Translate(Message) Interface
 }
 
 // minimal implementation
@@ -132,6 +132,10 @@ var ErrDisconnected = errors.New("disconnected")
 // ergo buffering is a must, timeout is a consequence, preserving system health needs to be implemented
 // node needs an internal outbox: default buffer size?
 // there should be no default buffer size
+// document: since wanting to avoid that one connection of a node blocks the others, cannot make sure that a
+// message reaches all connections. parent is distinguished only for knowing that the node is part of the
+// network. send blocks until at least one connection
+// document: similarities and differences between node and go channel communication
 // self healing network
 // - circular connections: by enforcing tree structure or marking messages with sender address
 // - what does address translation mean for this, how to identify a node?
