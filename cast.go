@@ -136,6 +136,8 @@ var ErrDisconnected = errors.New("disconnected")
 // message reaches all connections. parent is distinguished only for knowing that the node is part of the
 // network. send blocks until at least one connection
 // document: similarities and differences between node and go channel communication
+// error cannot be blocking. simple goroutine is enough, but document that it leads to leaks not handling it.
+// what else should the error channel be used for, and how during composition
 // self healing network
 // - circular connections: by enforcing tree structure or marking messages with sender address
 // - what does address translation mean for this, how to identify a node?

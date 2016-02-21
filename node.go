@@ -16,6 +16,8 @@ const (
 	outgoingTimeout nodeControlType = iota
 	connOutgoingDone
 	nodeConnClosed
+	joinParent
+	listenChildren
 )
 
 type nodeConnControl struct {
@@ -25,9 +27,12 @@ type nodeConnControl struct {
 }
 
 type nodeControl struct {
-	typ     nodeControlType
-	message *outgoingMessage
-	conn    *nodeConn
+	typ      nodeControlType
+	message  *outgoingMessage
+	listener Listener
+	conn     Connection
+	nodeConn *nodeConn
+	done     chan struct{}
 }
 
 type incomingMessage struct {
@@ -54,16 +59,17 @@ type nodeConn struct {
 }
 
 type node struct {
-	buffer   int
-	timeout  time.Duration
-	intern   *nodeConn
-	extern   Connection
-	parent   *nodeConn
-	children []*nodeConn
-	incoming chan *incomingMessage
-	outbox   []*outgoingMessage
-	control  chan *nodeControl
-	err      chan error
+	buffer      int
+	timeout     time.Duration
+	intern      *nodeConn
+	extern      Connection
+	parent      *nodeConn
+	connections <-chan Connection
+	children    []*nodeConn
+	incoming    chan *incomingMessage
+	outbox      []*outgoingMessage
+	control     chan *nodeControl
+	err         chan error
 }
 
 func removeNodeConn(cs []*nodeConn, c *nodeConn) []*nodeConn {
@@ -85,9 +91,9 @@ func (m *outgoingMessage) waitDone() {
 
 	for {
 		if tonc == nil {
-			nodectl = m.nodeControl
-		} else {
 			nodectl = nil
+		} else {
+			nodectl = m.nodeControl
 		}
 
 		select {
@@ -131,6 +137,9 @@ func (nc *nodeConn) relaySend() (currentm Message, fwdSend chan<- Message) {
 		currentm = *(nc.currentOut.message)
 	} else if nc.currentOut == nil {
 		fwdSend = nil
+	} else {
+		fwdSend = nc.conn.Send()
+		currentm = *(nc.currentOut.message)
 	}
 
 	return
@@ -179,15 +188,15 @@ func (nc *nodeConn) sendReceive() {
 			if open {
 				nc.currentIn = &incomingMessage{nc, &m}
 			} else {
-				nodeControls = append(nodeControls, &nodeControl{typ: nodeConnClosed, conn: nc})
+				nodeControls = append(nodeControls, &nodeControl{typ: nodeConnClosed, nodeConn: nc})
 			}
 		case fwdReceive <- nc.currentIn:
 			nc.currentIn = nil
 		case fwdSend <- currentm:
 			nodeControls = append(nodeControls, &nodeControl{
-				typ:     connOutgoingDone,
-				conn:    nc,
-				message: nc.currentOut})
+				typ:      connOutgoingDone,
+				nodeConn: nc,
+				message:  nc.currentOut})
 			nc.currentOut = nil
 		case nodectl <- currnc:
 			currnc = nil
@@ -240,7 +249,9 @@ func (n *node) dispatchMessage(m *incomingMessage) {
 	om := &outgoingMessage{
 		message:     m.message,
 		nodeControl: n.control,
-		conns:       conns}
+		conns:       conns,
+		done:        make(chan struct{})}
+	n.outbox = append(n.outbox, om)
 	if n.timeout > 0 {
 		om.timeout = time.After(n.timeout)
 	}
@@ -279,9 +290,10 @@ func (n *node) nodeControl(c *nodeControl) {
 		}
 
 		n.outbox = removeOutgoing(n.outbox, c.message)
+		go func() { n.err <- &TimeoutError{*c.message.message} }()
 	case connOutgoingDone:
 		for i, ci := range c.message.conns {
-			if ci == c.conn {
+			if ci == c.nodeConn {
 				c.message.conns, c.message.conns[len(c.message.conns)-1] =
 					append(c.message.conns[:i], c.message.conns[i+1:]...), nil
 				if len(c.message.conns) == 0 {
@@ -295,7 +307,7 @@ func (n *node) nodeControl(c *nodeControl) {
 	case nodeConnClosed:
 		for i, m := range n.outbox {
 			for j, ci := range m.conns {
-				if ci == c.conn {
+				if ci == c.nodeConn {
 					m.conns, m.conns[len(m.conns)-1] = append(m.conns[:j], m.conns[j+1:]...), nil
 					if len(m.conns) == 0 {
 						close(m.done)
@@ -307,9 +319,9 @@ func (n *node) nodeControl(c *nodeControl) {
 			}
 		}
 
-		c.conn.control <- &nodeConnControl{typ: closeNodeConn}
+		c.nodeConn.control <- &nodeConnControl{typ: closeNodeConn}
 
-		if c.conn == n.intern {
+		if c.nodeConn == n.intern {
 			if n.parent != nil {
 				n.parent.control <- &nodeConnControl{typ: closeNodeConn}
 				n.parent = nil
@@ -326,12 +338,28 @@ func (n *node) nodeControl(c *nodeControl) {
 			}
 
 			n.outbox = nil
-		} else if c.conn == n.parent {
-			n.err <- ErrDisconnected
+		} else if c.nodeConn == n.parent {
 			n.parent = nil
+			go func() { n.err <- ErrDisconnected }()
 		} else {
-			n.children = removeNodeConn(n.children, c.conn)
+			n.children = removeNodeConn(n.children, c.nodeConn)
 		}
+	case joinParent:
+		if n.parent != nil {
+			n.parent.control <- &nodeConnControl{typ: closeNodeConn}
+		}
+
+		n.parent = newNodeConn(c.conn, n.incoming, n.control)
+	case listenChildren:
+		if n.connections != nil {
+			panic("already listening")
+		}
+
+		n.connections = c.listener.Connections()
+	}
+
+	if c.done != nil {
+		close(c.done)
 	}
 }
 
@@ -342,12 +370,14 @@ func (n *node) run() {
 			n.dispatchMessage(m)
 		case c := <-n.control:
 			n.nodeControl(c)
+		case c := <-n.connections:
+			n.children = append(n.children, newNodeConn(c, n.incoming, n.control))
 		}
 	}
 }
 
 func (n *node) Send() chan<- Message    { return n.extern.Send() }
 func (n *node) Receive() <-chan Message { return n.extern.Receive() }
-func (n *node) Join(c Connection)       { n.control <- &nodeControl{} }
-func (n *node) Listen(l Listener)       { n.control <- &nodeControl{} }
+func (n *node) Join(c Connection)       { n.control <- &nodeControl{typ: joinParent, conn: c} }
+func (n *node) Listen(l Listener)       { n.control <- &nodeControl{typ: listenChildren, listener: l} }
 func (n *node) Error() <-chan error     { return n.err }
