@@ -2,16 +2,16 @@ package cast
 
 import "testing"
 
-func benchmarkDispatch(b *testing.B, parent bool, childCount int) {
-	receive := func(c Connection) {
-		for {
-			_, open := <-c.Receive()
-			if !open {
-				return
-			}
+func receive(c Connection) {
+	for {
+		_, open := <-c.Receive()
+		if !open {
+			return
 		}
 	}
+}
 
+func benchmarkDispatch(b *testing.B, parent bool, childCount int) {
 	n, p, _, children := createTestNode(0, 0, parent, childCount)
 
 	if parent {
@@ -29,6 +29,55 @@ func benchmarkDispatch(b *testing.B, parent bool, childCount int) {
 
 	b.StopTimer()
 	close(n.Send())
+}
+
+func createTree(n int) []Node {
+	if n == 0 {
+		return nil
+	}
+
+	node := NewNode(0, 0)
+	listener := make(InProcListener)
+	node.Listen(listener)
+	nodes := []Node{node}
+	n--
+
+	d, r := n/3, n%3
+	for i := 0; i < 3; i++ {
+		nn := d
+		if i < r {
+			nn++
+		}
+
+		children := createTree(nn)
+
+		if len(children) > 0 {
+			c, p := NewInProcConnection()
+			listener <- p
+			children[0].Join(c)
+		}
+
+		nodes = append(nodes, children...)
+	}
+
+	return nodes
+}
+
+func benchmarkTree(b *testing.B, n int) {
+	nodes := createTree(n)
+	for _, n := range nodes {
+		go receive(n)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		nodes[0].Send() <- Message{}
+	}
+
+	b.StopTimer()
+	for _, n := range nodes {
+		close(n.Send())
+	}
 }
 
 func BenchmarkNoParentNoChildren(b *testing.B) {
@@ -113,4 +162,80 @@ func BenchmarkParentOnlyChildren500000(b *testing.B) {
 
 func BenchmarkParentOnlyChildren1000000(b *testing.B) {
 	benchmarkDispatch(b, true, 1000000)
+}
+
+func BenchmarkTree1(b *testing.B) {
+	benchmarkTree(b, 1)
+}
+
+func BenchmarkTree2(b *testing.B) {
+	benchmarkTree(b, 2)
+}
+
+func BenchmarkTree5(b *testing.B) {
+	benchmarkTree(b, 5)
+}
+
+func BenchmarkTree10(b *testing.B) {
+	benchmarkTree(b, 10)
+}
+
+func BenchmarkTree20(b *testing.B) {
+	benchmarkTree(b, 20)
+}
+
+func BenchmarkTree50(b *testing.B) {
+	benchmarkTree(b, 50)
+}
+
+func BenchmarkTree100(b *testing.B) {
+	benchmarkTree(b, 100)
+}
+
+func BenchmarkTree200(b *testing.B) {
+	benchmarkTree(b, 200)
+}
+
+func BenchmarkTree500(b *testing.B) {
+	benchmarkTree(b, 500)
+}
+
+func BenchmarkTree1000(b *testing.B) {
+	benchmarkTree(b, 1000)
+}
+
+func BenchmarkTree2000(b *testing.B) {
+	benchmarkTree(b, 2000)
+}
+
+func BenchmarkTree5000(b *testing.B) {
+	benchmarkTree(b, 5000)
+}
+
+func BenchmarkTree10000(b *testing.B) {
+	benchmarkTree(b, 10000)
+}
+
+func BenchmarkTree20000(b *testing.B) {
+	benchmarkTree(b, 20000)
+}
+
+func BenchmarkTree50000(b *testing.B) {
+	benchmarkTree(b, 50000)
+}
+
+func BenchmarkTree100000(b *testing.B) {
+	benchmarkTree(b, 100000)
+}
+
+func BenchmarkTree200000(b *testing.B) {
+	benchmarkTree(b, 200000)
+}
+
+func BenchmarkTree500000(b *testing.B) {
+	benchmarkTree(b, 500000)
+}
+
+func BenchmarkTree1000000(b *testing.B) {
+	benchmarkTree(b, 1000000)
 }
