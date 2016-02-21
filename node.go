@@ -2,10 +2,10 @@ package cast
 
 import "time"
 
-type nodeConnControlType int
+type connControlType int
 
 const (
-	newOutgoing nodeConnControlType = iota
+	newOutgoing connControlType = iota
 	cancelOutgoing
 	closeNodeConn
 )
@@ -20,12 +20,12 @@ const (
 	listenChildren
 )
 
-type nodeConnControl struct {
-	typ     nodeConnControlType
+type connControl struct {
+	typ     connControlType
 	message *outgoingMessage
 }
 
-type nodeConn chan<- *nodeConnControl
+type nodeConn chan<- *connControl
 
 type nodeControl struct {
 	typ      nodeControlType
@@ -77,7 +77,7 @@ func removeNodeConn(cs []nodeConn, c nodeConn) []nodeConn {
 func discardOutgoing(om *outgoingMessage) {
 	close(om.discard)
 	for _, conn := range om.conns {
-		conn <- &nodeConnControl{typ: cancelOutgoing, message: om}
+		conn <- &connControl{typ: cancelOutgoing, message: om}
 	}
 }
 
@@ -85,7 +85,7 @@ func runConnection(
 	c Connection,
 	im chan<- *incomingMessage,
 	nctl chan<- *nodeControl,
-	control chan *nodeConnControl) {
+	control chan *connControl) {
 
 	var (
 		in         *incomingMessage
@@ -178,7 +178,7 @@ func runConnection(
 
 // process for communicating between the node and a single connection
 func newNodeConn(c Connection, im chan<- *incomingMessage, nctl chan<- *nodeControl) nodeConn {
-	control := make(chan *nodeConnControl)
+	control := make(chan *connControl)
 	go runConnection(c, im, nctl, control)
 	return control
 }
@@ -258,7 +258,7 @@ func dispatchMessage(
 	}
 
 	for _, ci := range conns {
-		ci <- &nodeConnControl{typ: newOutgoing, message: om}
+		ci <- &connControl{typ: newOutgoing, message: om}
 	}
 
 	return om
@@ -279,7 +279,7 @@ func findConnMessages(c nodeConn, ms []*outgoingMessage) []*outgoingMessage {
 }
 
 func closeNode(intern, parent nodeConn, children []nodeConn, outbox []*outgoingMessage) {
-	cls := &nodeConnControl{typ: closeNodeConn}
+	cls := &connControl{typ: closeNodeConn}
 	intern <- cls
 
 	if parent != nil {
@@ -356,7 +356,7 @@ func runNode(
 					}
 				}
 
-				c.nodeConn <- &nodeConnControl{typ: closeNodeConn}
+				c.nodeConn <- &connControl{typ: closeNodeConn}
 				if c.nodeConn == parent {
 					parent = nil
 					go func() { err <- ErrDisconnected }()
@@ -365,7 +365,7 @@ func runNode(
 				}
 			case joinParent:
 				if parent != nil {
-					parent <- &nodeConnControl{typ: closeNodeConn}
+					parent <- &connControl{typ: closeNodeConn}
 				}
 
 				parent = newNodeConn(c.conn, incoming, control)
@@ -380,7 +380,7 @@ func runNode(
 			if !open {
 				listen = nil
 				for _, c := range children {
-					c <- &nodeConnControl{typ: closeNodeConn}
+					c <- &connControl{typ: closeNodeConn}
 				}
 
 				children = nil
