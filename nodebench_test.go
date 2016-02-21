@@ -12,9 +12,9 @@ func receive(c Connection) {
 }
 
 func benchmarkDispatch(b *testing.B, parent bool, childCount int) {
-    if childCount > 500 && testing.Short() {
-        b.Skip()
-    }
+	if childCount > 500 && testing.Short() {
+		b.Skip()
+	}
 
 	n, p, _, children := createTestNode(0, 0, parent, childCount)
 
@@ -68,9 +68,9 @@ func createTree(n int) []Node {
 }
 
 func benchmarkTree(b *testing.B, n int) {
-    if n > 200 && testing.Short() {
-        b.Skip()
-    }
+	if n > 200 && testing.Short() {
+		b.Skip()
+	}
 
 	nodes := createTree(n)
 	for _, n := range nodes {
