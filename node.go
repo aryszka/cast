@@ -204,7 +204,6 @@ func targetConns(source nodeConn, conns []nodeConn) []nodeConn {
 		}
 	}
 
-	// TODO: find test scenario
 	if !existingConn {
 		return nil
 	}
@@ -267,9 +266,6 @@ func dispatchMessage(
 
 func findConnMessages(c nodeConn, ms []*outgoingMessage) []*outgoingMessage {
 	var result []*outgoingMessage
-	// TODO:
-	// - could be tracked whether which conns a message is not sent to instead
-	// - benchmark with large set of nodes
 	for _, om := range ms {
 		for _, ci := range om.conns {
 			if ci == c {
