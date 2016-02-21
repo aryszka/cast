@@ -111,6 +111,8 @@ type InterfaceTranslation interface {
 // disconnected node blocking or non-blocking
 // node without any connections, parent or not, blocing or non-blocking
 // node cannot be blocking by default, because it can be a leaf node
+// node error routine never exits
+// similarities and differences between node and go channel communication
 type Node interface {
 	Connection
 	Join(Connection)
@@ -126,28 +128,14 @@ var (
 	ErrListenerDisconnected = errors.New("listener disconnected")
 )
 
-// timeout: either remove from node or make it timeout when not dispatched, maybe
-// unify buffering, and let it up to the composition, how it is handled for different connections, maybe
-// maybe put a single buffered timeout connection as a buffer inside the node
-// node error routine never exits
-// should the node have an error at all? should the connection have an error?
-// no need to buffer the connection, the node should be buffered
-// one blocking connection cannot block other connections in a node, because that would block whole segments of
-// a network
-// ergo buffering is a must, timeout is a consequence, preserving system health needs to be implemented
-// node needs an internal outbox: default buffer size?
-// there should be no default buffer size
-// document: since wanting to avoid that one connection of a node blocks the others, cannot make sure that a
-// message reaches all connections. parent is distinguished only for knowing that the node is part of the
-// network. send blocks until at least one connection
-// document: similarities and differences between node and go channel communication
-// error cannot be blocking. simple goroutine is enough, but document that it leads to leaks not handling it.
-// what else should the error channel be used for, and how during composition
 // self healing network
 // - circular connections: by enforcing tree structure or marking messages with sender address
 // - what does address translation mean for this, how to identify a node?
 // - message loss from parent to child
 // - need a concept of the address, address space
+// collector and emitter
+// mux and demux
+// filter
 // sockets
 // document all
 // write a cmd client

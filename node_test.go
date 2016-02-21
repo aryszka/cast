@@ -147,6 +147,15 @@ func testMessageBlock(n Node, buffer int, timeout time.Duration, from, block Con
 	return terr
 }
 
+func receiveAll(c Connection) {
+	for {
+		_, open := <-c.Receive()
+		if !open {
+			return
+		}
+	}
+}
+
 func createTestNode(buffer int, timeout time.Duration, hasParent bool, childrenCount int) (
 	n Node, parent Connection, l Listener, children []Connection) {
 
@@ -173,6 +182,31 @@ func createTestNode(buffer int, timeout time.Duration, hasParent bool, childrenC
 	}
 
 	return
+}
+
+func createChain(n int) []Node {
+	if n == 0 {
+		return nil
+	}
+
+	nodes := []Node{NewNode(0, 0)}
+	listener := make(InProcListener)
+	nodes[0].Listen(listener)
+	for i := 0; i < n-1; i++ {
+		n := NewNode(0, 0)
+		nodes = append(nodes, n)
+
+		c, err := listener.Connect()
+		if err != nil {
+			panic(err)
+		}
+
+		n.Join(c)
+		listener = make(InProcListener)
+		n.Listen(listener)
+	}
+
+	return nodes
 }
 
 func createTree(n int) []Node {
@@ -592,6 +626,19 @@ func TestDiscardOutgoingOnConnectionClose(t *testing.T) {
 	lp, rp := NewInProcConnection()
 	n.Join(rp)
 	testBlock(t, func() { <-lp.Receive() })
+}
+
+func TestNodeChain(t *testing.T) {
+	nodes := createChain(42)
+	to := make([]Connection, len(nodes[1:]))
+	for i, n := range nodes[1:] {
+		to[i] = n
+	}
+
+	err := testMessage(testing.Short(), nodes[0], to...)
+	if err != nil {
+		t.Error(err)
+	}
 }
 
 func TestNodeTree(t *testing.T) {
