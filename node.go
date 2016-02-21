@@ -23,251 +23,33 @@ const (
 type nodeConnControl struct {
 	typ     nodeConnControlType
 	message *outgoingMessage
-	receive bool
 }
+
+type nodeConn chan<- *nodeConnControl
 
 type nodeControl struct {
 	typ      nodeControlType
 	message  *outgoingMessage
 	listener Listener
 	conn     Connection
-	nodeConn *nodeConn
-	done     chan struct{}
+	nodeConn nodeConn
 }
 
 type incomingMessage struct {
-	source  *nodeConn
+	source  nodeConn
 	message *Message
 }
 
 type outgoingMessage struct {
-	message     *Message
-	timeout     <-chan time.Time
-	nodeControl chan<- *nodeControl
-	done        chan struct{}
-	conns       []*nodeConn
-}
-
-type nodeConn struct {
-	conn        Connection
-	control     chan *nodeConnControl
-	nodeControl chan<- *nodeControl
-	incoming    chan<- *incomingMessage
-	currentIn   *incomingMessage
-	currentOut  *outgoingMessage
-	outbox      []*outgoingMessage
+	message *Message
+	conns   []nodeConn
+	discard chan struct{}
 }
 
 type node struct {
-	buffer      int
-	timeout     time.Duration
-	intern      *nodeConn
-	extern      Connection
-	parent      *nodeConn
-	connections <-chan Connection
-	children    []*nodeConn
-	incoming    chan *incomingMessage
-	outbox      []*outgoingMessage
-	control     chan *nodeControl
-	err         chan error
-}
-
-func removeNodeConn(cs []*nodeConn, c *nodeConn) []*nodeConn {
-	for i, ci := range cs {
-		if ci == c {
-			cs, cs[len(cs)-1] = append(cs[:i], cs[i+1:]...), nil
-			break
-		}
-	}
-
-	return cs
-}
-
-func (m *outgoingMessage) waitDone() {
-	var (
-		tonc    *nodeControl
-		nodectl chan<- *nodeControl
-	)
-
-	for {
-		if tonc == nil {
-			nodectl = nil
-		} else {
-			nodectl = m.nodeControl
-		}
-
-		select {
-		case <-m.timeout:
-			tonc = &nodeControl{typ: outgoingTimeout, message: m}
-		case nodectl <- tonc:
-			tonc = nil
-		case <-m.done:
-			return
-		}
-	}
-}
-
-func newNodeConn(c Connection, im chan<- *incomingMessage, nctl chan<- *nodeControl) *nodeConn {
-	nc := &nodeConn{
-		conn:        c,
-		control:     make(chan *nodeConnControl),
-		incoming:    im,
-		nodeControl: nctl}
-	go nc.sendReceive()
-	return nc
-}
-
-func (nc *nodeConn) relayReceive() (receiver <-chan Message, fwdReceive chan<- *incomingMessage) {
-	if nc.currentIn == nil {
-		receiver = nc.conn.Receive()
-		fwdReceive = nil
-	} else {
-		receiver = nil
-		fwdReceive = nc.incoming
-	}
-
-	return
-}
-
-func (nc *nodeConn) relaySend() (currentm Message, fwdSend chan<- Message) {
-	if nc.currentOut == nil && len(nc.outbox) > 0 {
-		fwdSend = nc.conn.Send()
-		nc.currentOut = nc.outbox[0]
-		nc.outbox = nc.outbox[1:]
-		currentm = *(nc.currentOut.message)
-	} else if nc.currentOut == nil {
-		fwdSend = nil
-	} else {
-		fwdSend = nc.conn.Send()
-		currentm = *(nc.currentOut.message)
-	}
-
-	return
-}
-
-func (nc *nodeConn) nodeConnControl(c *nodeConnControl) {
-	switch c.typ {
-	case newOutgoing:
-		nc.outbox = append(nc.outbox, c.message)
-	case cancelOutgoing:
-		if nc.currentOut == c.message {
-			nc.currentOut = nil
-		} else {
-			nc.outbox = removeOutgoing(nc.outbox, c.message)
-		}
-	case closeNodeConn:
-		close(nc.conn.Send())
-	}
-}
-
-func (nc *nodeConn) sendReceive() {
-	var (
-		currentm     Message
-		receiver     <-chan Message
-		fwdReceive   chan<- *incomingMessage
-		fwdSend      chan<- Message
-		nodeControls []*nodeControl
-		currnc       *nodeControl
-		nodectl      chan<- *nodeControl
-	)
-
-	for {
-		receiver, fwdReceive = nc.relayReceive()
-		currentm, fwdSend = nc.relaySend()
-
-		if currnc == nil && len(nodeControls) > 0 {
-			currnc = nodeControls[0]
-			nodeControls = nodeControls[1:]
-			nodectl = nc.nodeControl
-		} else if currnc == nil {
-			nodectl = nil
-		}
-
-		select {
-		case m, open := <-receiver:
-			if open {
-				nc.currentIn = &incomingMessage{nc, &m}
-			} else {
-				nodeControls = append(nodeControls, &nodeControl{typ: nodeConnClosed, nodeConn: nc})
-			}
-		case fwdReceive <- nc.currentIn:
-			nc.currentIn = nil
-		case fwdSend <- currentm:
-			nodeControls = append(nodeControls, &nodeControl{
-				typ:      connOutgoingDone,
-				nodeConn: nc,
-				message:  nc.currentOut})
-			nc.currentOut = nil
-		case nodectl <- currnc:
-			currnc = nil
-		case c := <-nc.control:
-			nc.nodeConnControl(c)
-			if c.typ == closeNodeConn {
-				return
-			}
-		}
-	}
-}
-
-func NewNode(buffer int, timeout time.Duration) Node {
-	intern, extern := NewInProcConnection()
-	control := make(chan *nodeControl)
-	incoming := make(chan *incomingMessage)
-	n := &node{
-		buffer:   buffer,
-		timeout:  timeout,
-		intern:   newNodeConn(intern, incoming, control),
-		extern:   extern,
-		control:  control,
-		incoming: incoming,
-		err:      make(chan error)}
-	go n.run()
-	return n
-}
-
-func (n *node) dispatchMessage(m *incomingMessage) {
-	var conns []*nodeConn
-
-	if n.intern != m.source {
-		conns = append(conns, n.intern)
-	}
-
-	if n.parent != nil && n.parent != m.source {
-		conns = append(conns, n.parent)
-	}
-
-	for _, c := range n.children {
-		if c != m.source {
-			conns = append(conns, c)
-		}
-	}
-
-	if len(conns) == 0 {
-		return
-	}
-
-	om := &outgoingMessage{
-		message:     m.message,
-		nodeControl: n.control,
-		conns:       conns,
-		done:        make(chan struct{})}
-	n.outbox = append(n.outbox, om)
-	if n.timeout > 0 {
-		om.timeout = time.After(n.timeout)
-	}
-
-	go om.waitDone()
-	for _, ci := range conns {
-		ci.control <- &nodeConnControl{typ: newOutgoing, message: om}
-	}
-}
-
-func (n *node) relayIncoming() <-chan *incomingMessage {
-	if len(n.outbox) > n.buffer {
-		return nil
-	}
-
-	return n.incoming
+	extern  Connection
+	control chan *nodeControl
+	err     chan error
 }
 
 func removeOutgoing(ms []*outgoingMessage, m *outgoingMessage) []*outgoingMessage {
@@ -281,99 +63,314 @@ func removeOutgoing(ms []*outgoingMessage, m *outgoingMessage) []*outgoingMessag
 	return ms
 }
 
-func (n *node) nodeControl(c *nodeControl) {
-	switch c.typ {
-	case outgoingTimeout:
-		close(c.message.done)
-		for _, conn := range c.message.conns {
-			conn.control <- &nodeConnControl{typ: cancelOutgoing, message: c.message}
+func removeNodeConn(cs []nodeConn, c nodeConn) []nodeConn {
+	for i, ci := range cs {
+		if ci == c {
+			cs, cs[len(cs)-1] = append(cs[:i], cs[i+1:]...), nil
+			break
 		}
-
-		n.outbox = removeOutgoing(n.outbox, c.message)
-		go func() { n.err <- &TimeoutError{*c.message.message} }()
-	case connOutgoingDone:
-		for i, ci := range c.message.conns {
-			if ci == c.nodeConn {
-				c.message.conns, c.message.conns[len(c.message.conns)-1] =
-					append(c.message.conns[:i], c.message.conns[i+1:]...), nil
-				if len(c.message.conns) == 0 {
-					close(c.message.done)
-					n.outbox = removeOutgoing(n.outbox, c.message)
-				}
-
-				break
-			}
-		}
-	case nodeConnClosed:
-		for i, m := range n.outbox {
-			for j, ci := range m.conns {
-				if ci == c.nodeConn {
-					m.conns, m.conns[len(m.conns)-1] = append(m.conns[:j], m.conns[j+1:]...), nil
-					if len(m.conns) == 0 {
-						close(m.done)
-						n.outbox, n.outbox[len(n.outbox)-1] = append(n.outbox[:i], n.outbox[i+1:]...), nil
-					}
-
-					break
-				}
-			}
-		}
-
-		c.nodeConn.control <- &nodeConnControl{typ: closeNodeConn}
-
-		if c.nodeConn == n.intern {
-			if n.parent != nil {
-				n.parent.control <- &nodeConnControl{typ: closeNodeConn}
-				n.parent = nil
-			}
-
-			for _, ci := range n.children {
-				ci.control <- &nodeConnControl{typ: closeNodeConn}
-			}
-
-			n.children = nil
-
-			for _, m := range n.outbox {
-				close(m.done)
-			}
-
-			n.outbox = nil
-		} else if c.nodeConn == n.parent {
-			n.parent = nil
-			go func() { n.err <- ErrDisconnected }()
-		} else {
-			n.children = removeNodeConn(n.children, c.nodeConn)
-		}
-	case joinParent:
-		if n.parent != nil {
-			n.parent.control <- &nodeConnControl{typ: closeNodeConn}
-		}
-
-		n.parent = newNodeConn(c.conn, n.incoming, n.control)
-	case listenChildren:
-		if n.connections != nil {
-			panic("already listening")
-		}
-
-		n.connections = c.listener.Connections()
 	}
 
-	if c.done != nil {
-		close(c.done)
+	return cs
+}
+
+func discardOutgoing(om *outgoingMessage) {
+	close(om.discard)
+	for _, conn := range om.conns {
+		conn <- &nodeConnControl{typ: cancelOutgoing, message: om}
 	}
 }
 
-func (n *node) run() {
-	for {
-		select {
-		case m := <-n.relayIncoming():
-			n.dispatchMessage(m)
-		case c := <-n.control:
-			n.nodeControl(c)
-		case c := <-n.connections:
-			n.children = append(n.children, newNodeConn(c, n.incoming, n.control))
+func newNodeConn(c Connection, im chan<- *incomingMessage, nctl chan<- *nodeControl) nodeConn {
+	control := make(chan *nodeConnControl)
+
+	go func() {
+		var (
+			in         *incomingMessage
+			out        *outgoingMessage
+			outm       Message
+			outbox     []*outgoingMessage
+			receiver   <-chan Message
+			fwdReceive chan<- *incomingMessage
+			fwdSend    chan<- Message
+			nodeQueue  []*nodeControl
+			sendnc     chan<- *nodeControl
+			nc         *nodeControl
+		)
+
+		for {
+			// receive incoming from outside or forward it to the node.
+			// when there is an incoming message to be forwarded,
+			// block the receiver by setting it to nil.
+			if in == nil {
+				receiver = c.Receive()
+				fwdReceive = nil
+			} else {
+				receiver = nil
+				fwdReceive = im
+			}
+
+			// when there is something in the outbox, forward it out.
+			// when there is nothing to send, block the sender
+			// by setting it to nil.
+			if out == nil && len(outbox) > 0 {
+				fwdSend = c.Send()
+				out = outbox[0]
+				outbox = outbox[1:]
+				outm = *out.message
+			} else if out == nil {
+				fwdSend = nil
+			}
+
+			// when there is a node control message in the queue,
+			// set it to be sent.
+			// when there is no node control message, block the
+			// node control channel by setting it to nil.
+			if nc == nil && len(nodeQueue) > 0 {
+				nc = nodeQueue[0]
+				nodeQueue = nodeQueue[1:]
+				sendnc = nctl
+			} else if nc == nil {
+				sendnc = nil
+			}
+
+			select {
+			case m, open := <-receiver:
+				if open {
+					in = &incomingMessage{control, &m}
+				} else {
+					nodeQueue = append(nodeQueue, &nodeControl{
+						typ:      nodeConnClosed,
+						nodeConn: control})
+				}
+			case fwdReceive <- in:
+				in = nil
+			case fwdSend <- outm:
+				nodeQueue = append(nodeQueue, &nodeControl{
+					typ:      connOutgoingDone,
+					nodeConn: control,
+					message:  out})
+				out = nil
+			case sendnc <- nc:
+				nc = nil
+			case ctl := <-control:
+				switch ctl.typ {
+				case newOutgoing:
+					outbox = append(outbox, ctl.message)
+				case cancelOutgoing:
+					if out == ctl.message {
+						out = nil
+					} else {
+						outbox = removeOutgoing(outbox, ctl.message)
+					}
+				case closeNodeConn:
+					close(c.Send())
+					return
+				}
+			}
+		}
+	}()
+
+	return control
+}
+
+func targetConns(source nodeConn, conns []nodeConn) []nodeConn {
+	// don't send the message when not coming from
+	// an existing connection, or there is no connection
+	// to send to. don't send the message to the source
+	// connection.
+
+	var (
+		targetConns  []nodeConn
+		existingConn bool
+	)
+
+	for _, c := range conns {
+		if c != nil && c != source {
+			targetConns = append(targetConns, c)
+		}
+
+		if c == source {
+			existingConn = true
 		}
 	}
+
+	if !existingConn {
+		return nil
+	}
+
+	return targetConns
+}
+
+func waitTimeoutOrDiscard(om *outgoingMessage, timeout time.Duration, nctl chan<- *nodeControl) {
+	var (
+		timeoutc <-chan time.Time
+		toc      *nodeControl
+		sendctl  chan<- *nodeControl
+	)
+
+	if timeout > 0 {
+		timeoutc = time.After(timeout)
+		toc = &nodeControl{typ: outgoingTimeout, message: om}
+	}
+
+	for {
+		select {
+		case <-timeoutc:
+			// block the nodeControl channel until timeout
+			// by leaving it nil
+			sendctl = nctl
+		case sendctl <- toc:
+			sendctl = nil
+		case <-om.discard:
+			return
+		}
+	}
+}
+
+func dispatchMessage(
+	m *incomingMessage,
+	timeout time.Duration,
+	control chan<- *nodeControl,
+	conns []nodeConn) *outgoingMessage {
+
+	conns = targetConns(m.source, conns)
+	if len(conns) == 0 {
+		return nil
+	}
+
+	om := &outgoingMessage{
+		message: m.message,
+		conns:   conns,
+		discard: make(chan struct{})}
+
+	go waitTimeoutOrDiscard(om, timeout, control)
+	for _, ci := range conns {
+		ci <- &nodeConnControl{typ: newOutgoing, message: om}
+	}
+
+	return om
+}
+
+func findConnMessages(c nodeConn, ms []*outgoingMessage) []*outgoingMessage {
+	var result []*outgoingMessage
+	for _, om := range ms {
+		for _, ci := range om.conns {
+			if ci == c {
+				result = append(result, om)
+				break
+			}
+		}
+	}
+
+	return result
+}
+
+func closeNode(intern, parent nodeConn, children []nodeConn, outbox []*outgoingMessage) {
+	cls := &nodeConnControl{typ: closeNodeConn}
+	intern <- cls
+
+	if parent != nil {
+		parent <- cls
+	}
+
+	for _, ci := range children {
+		ci <- cls
+	}
+
+	for _, m := range outbox {
+		close(m.discard)
+	}
+}
+
+func NewNode(buffer int, timeout time.Duration) Node {
+	intern, extern := NewInProcConnection()
+	control := make(chan *nodeControl)
+	incoming := make(chan *incomingMessage)
+	internConn := newNodeConn(intern, incoming, control)
+	err := make(chan error)
+
+	go func() {
+		var (
+			receiveIncoming <-chan *incomingMessage
+			outbox          []*outgoingMessage
+			parent          nodeConn
+			children        []nodeConn
+			listen          <-chan Connection
+		)
+
+		for {
+			// when the outbox is full, block all
+			// incoming messages by setting the
+			// incoming channel to nil.
+			if len(outbox) > buffer {
+				receiveIncoming = nil
+			} else {
+				receiveIncoming = incoming
+			}
+
+			select {
+			case m := <-receiveIncoming:
+				om := dispatchMessage(m, timeout, control,
+					append([]nodeConn{internConn, parent}, children...))
+				if om != nil {
+					outbox = append(outbox, om)
+				}
+			case c := <-control:
+				switch c.typ {
+				case outgoingTimeout:
+					discardOutgoing(c.message)
+					outbox = removeOutgoing(outbox, c.message)
+					go func() { err <- &TimeoutError{*c.message.message} }()
+				case connOutgoingDone:
+					c.message.conns = removeNodeConn(c.message.conns, c.nodeConn)
+					if len(c.message.conns) == 0 {
+						discardOutgoing(c.message)
+						outbox = removeOutgoing(outbox, c.message)
+					}
+				case nodeConnClosed:
+					// closing the node connection means that node is closed
+					if c.nodeConn == internConn {
+						closeNode(internConn, parent, children, outbox)
+						return
+					}
+
+					oms := findConnMessages(c.nodeConn, outbox)
+					for _, om := range oms {
+						om.conns = removeNodeConn(om.conns, c.nodeConn)
+						if len(om.conns) == 0 {
+							discardOutgoing(om)
+							outbox = removeOutgoing(outbox, om)
+						}
+					}
+
+					c.nodeConn <- &nodeConnControl{typ: closeNodeConn}
+					if c.nodeConn == parent {
+						parent = nil
+						go func() { err <- ErrDisconnected }()
+					} else {
+						children = removeNodeConn(children, c.nodeConn)
+					}
+				case joinParent:
+					if parent != nil {
+						parent <- &nodeConnControl{typ: closeNodeConn}
+					}
+
+					parent = newNodeConn(c.conn, incoming, control)
+				case listenChildren:
+					if listen != nil {
+						panic("already listening")
+					}
+
+					listen = c.listener.Connections()
+				}
+			case c := <-listen:
+				children = append(children, newNodeConn(c, incoming, control))
+			}
+		}
+	}()
+
+	return &node{extern: extern, control: control, err: err}
 }
 
 func (n *node) Send() chan<- Message    { return n.extern.Send() }

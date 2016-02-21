@@ -402,7 +402,7 @@ func TestMessaging(t *testing.T) {
 
 		if ti.block == "" {
 			err = testMessage(from, to...)
-		} else {
+		} else if ti.timeout > 0 || !testing.Short() {
 			var block Connection
 			block, err = getConnection(ti.block)
 			if err == nil {
