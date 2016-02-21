@@ -12,6 +12,10 @@ func receive(c Connection) {
 }
 
 func benchmarkDispatch(b *testing.B, parent bool, childCount int) {
+    if childCount > 500 && testing.Short() {
+        b.Skip()
+    }
+
 	n, p, _, children := createTestNode(0, 0, parent, childCount)
 
 	if parent {
@@ -64,6 +68,10 @@ func createTree(n int) []Node {
 }
 
 func benchmarkTree(b *testing.B, n int) {
+    if n > 200 && testing.Short() {
+        b.Skip()
+    }
+
 	nodes := createTree(n)
 	for _, n := range nodes {
 		go receive(n)
@@ -88,79 +96,79 @@ func BenchmarkParentOnly(b *testing.B) {
 	benchmarkDispatch(b, true, 0)
 }
 
-func BenchmarkParentOnlyChildren1(b *testing.B) {
+func BenchmarkParentChildren1(b *testing.B) {
 	benchmarkDispatch(b, true, 1)
 }
 
-func BenchmarkParentOnlyChildren2(b *testing.B) {
+func BenchmarkParentChildren2(b *testing.B) {
 	benchmarkDispatch(b, true, 2)
 }
 
-func BenchmarkParentOnlyChildren5(b *testing.B) {
+func BenchmarkParentChildren5(b *testing.B) {
 	benchmarkDispatch(b, true, 5)
 }
 
-func BenchmarkParentOnlyChildren10(b *testing.B) {
+func BenchmarkParentChildren10(b *testing.B) {
 	benchmarkDispatch(b, true, 10)
 }
 
-func BenchmarkParentOnlyChildren20(b *testing.B) {
+func BenchmarkParentChildren20(b *testing.B) {
 	benchmarkDispatch(b, true, 20)
 }
 
-func BenchmarkParentOnlyChildren50(b *testing.B) {
+func BenchmarkParentChildren50(b *testing.B) {
 	benchmarkDispatch(b, true, 50)
 }
 
-func BenchmarkParentOnlyChildren100(b *testing.B) {
+func BenchmarkParentChildren100(b *testing.B) {
 	benchmarkDispatch(b, true, 100)
 }
 
-func BenchmarkParentOnlyChildren200(b *testing.B) {
+func BenchmarkParentChildren200(b *testing.B) {
 	benchmarkDispatch(b, true, 200)
 }
 
-func BenchmarkParentOnlyChildren500(b *testing.B) {
+func BenchmarkParentChildren500(b *testing.B) {
 	benchmarkDispatch(b, true, 500)
 }
 
-func BenchmarkParentOnlyChildren1000(b *testing.B) {
+func BenchmarkParentChildren1000(b *testing.B) {
 	benchmarkDispatch(b, true, 1000)
 }
 
-func BenchmarkParentOnlyChildren2000(b *testing.B) {
+func BenchmarkParentChildren2000(b *testing.B) {
 	benchmarkDispatch(b, true, 2000)
 }
 
-func BenchmarkParentOnlyChildren5000(b *testing.B) {
+func BenchmarkParentChildren5000(b *testing.B) {
 	benchmarkDispatch(b, true, 5000)
 }
 
-func BenchmarkParentOnlyChildren10000(b *testing.B) {
+func BenchmarkParentChildren10000(b *testing.B) {
 	benchmarkDispatch(b, true, 10000)
 }
 
-func BenchmarkParentOnlyChildren20000(b *testing.B) {
+func BenchmarkParentChildren20000(b *testing.B) {
 	benchmarkDispatch(b, true, 20000)
 }
 
-func BenchmarkParentOnlyChildren50000(b *testing.B) {
+func BenchmarkParentChildren50000(b *testing.B) {
 	benchmarkDispatch(b, true, 50000)
 }
 
-func BenchmarkParentOnlyChildren100000(b *testing.B) {
+func BenchmarkParentChildren100000(b *testing.B) {
 	benchmarkDispatch(b, true, 100000)
 }
 
-func BenchmarkParentOnlyChildren200000(b *testing.B) {
+func BenchmarkParentChildren200000(b *testing.B) {
 	benchmarkDispatch(b, true, 200000)
 }
 
-func BenchmarkParentOnlyChildren500000(b *testing.B) {
+func BenchmarkParentChildren500000(b *testing.B) {
 	benchmarkDispatch(b, true, 500000)
 }
 
-func BenchmarkParentOnlyChildren1000000(b *testing.B) {
+func BenchmarkParentChildren1000000(b *testing.B) {
 	benchmarkDispatch(b, true, 1000000)
 }
 
