@@ -98,7 +98,7 @@ func testMessage(short bool, from Connection, to ...Connection) error {
 }
 
 func testMessageBlock(n Node, buffer int, timeout time.Duration, from, block Connection, to ...Connection) error {
-	/* 3 is kind of a magic value */
+	/* 3 is kind of a magic value here */
 	const defaultBuffer = 3
 
 	send := func(count int) {
