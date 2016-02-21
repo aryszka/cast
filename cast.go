@@ -118,8 +118,13 @@ type Node interface {
 	Error() <-chan error
 }
 
-// error sent when parent is disconnected
-var ErrDisconnected = errors.New("disconnected")
+var (
+	// error sent when parent is disconnected
+	ErrDisconnected = errors.New("disconnected")
+
+	// error sent when active listener is disconnected
+	ErrListenerDisconnected = errors.New("listener disconnected")
+)
 
 // timeout: either remove from node or make it timeout when not dispatched, maybe
 // unify buffering, and let it up to the composition, how it is handled for different connections, maybe

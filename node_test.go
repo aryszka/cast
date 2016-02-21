@@ -33,7 +33,21 @@ func timeoutOrBlock(block bool, a func()) error {
 func callTimeout(a func()) error { return timeoutOrBlock(false, a) }
 func callBlock(a func()) error   { return timeoutOrBlock(true, a) }
 
-func testMessage(from Connection, to ...Connection) error {
+func testTimeout(t *testing.T, a func()) {
+	err := callTimeout(a)
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func testBlock(t *testing.T, a func()) {
+	err := callBlock(a)
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func testMessage(short bool, from Connection, to ...Connection) error {
 	msend := []Message{{Val: "one"}, {Val: "two"}, {Val: "three"}}
 	for _, m := range msend {
 		err := callTimeout(func() { from.Send() <- m })
@@ -41,15 +55,35 @@ func testMessage(from Connection, to ...Connection) error {
 			return err
 		}
 
-		terr := callTimeout(func() {
-			for _, r := range to {
-				mreceive := <-r.Receive()
-				if mreceive.Val != m.Val {
-					err = errors.New("failed to send message")
-					break
+		var (
+			terr, berr error
+			wg         sync.WaitGroup
+		)
+		wg.Add(1)
+		if !short {
+			wg.Add(1)
+			go func() {
+				berr = callBlock(func() { <-from.Receive() })
+				wg.Done()
+			}()
+		}
+		go func() {
+			terr = callTimeout(func() {
+				for _, r := range to {
+					mreceive := <-r.Receive()
+					if mreceive.Val != m.Val {
+						err = errors.New("failed to send message")
+						break
+					}
 				}
-			}
-		})
+			})
+			wg.Done()
+		}()
+		wg.Wait()
+
+		if berr != nil {
+			return berr
+		}
 
 		if terr != nil {
 			return terr
@@ -401,7 +435,7 @@ func TestMessaging(t *testing.T) {
 		}
 
 		if ti.block == "" {
-			err = testMessage(from, to...)
+			err = testMessage(testing.Short(), from, to...)
 		} else if ti.timeout > 0 || !testing.Short() {
 			var block Connection
 			block, err = getConnection(ti.block)
@@ -414,4 +448,116 @@ func TestMessaging(t *testing.T) {
 			t.Error(ti.msg, err)
 		}
 	}
+}
+
+func TestCloseNode(t *testing.T) {
+	n, p, _, children := createTestNode(0, 0, true, 3)
+	close(n.Send())
+	testTimeout(t, func() {
+		_, open := <-p.Receive()
+		if open {
+			t.Error("failed to close parent connection")
+		}
+
+		for _, c := range children {
+			_, open := <-c.Receive()
+			if open {
+				t.Error("failed to close child connection")
+			}
+		}
+	})
+}
+
+func TestCloseParent(t *testing.T) {
+	n, parent, _, _ := createTestNode(0, 0, true, 0)
+	close(parent.Send())
+	testTimeout(t, func() {
+		for {
+			err := <-n.Error()
+			if err == ErrDisconnected {
+				return
+			}
+		}
+	})
+}
+
+func TestCloseChild(t *testing.T) {
+	n, _, _, children := createTestNode(0, 0, false, 3)
+	close(children[0].Send())
+	testTimeout(t, func() {
+		n.Send() <- Message{}
+		for _, c := range children[1:] {
+			<-c.Receive()
+		}
+	})
+}
+
+func TestChangeParent(t *testing.T) {
+	n, parent, _, _ := createTestNode(0, 0, true, 0)
+	nextpl, nextpr := NewInProcConnection()
+	n.Join(nextpr)
+	n.Send() <- Message{}
+	testTimeout(t, func() {
+		_, open := <-parent.Receive()
+		if open {
+			t.Error("failed to close previous parent")
+		}
+
+		n.Send() <- Message{}
+		<-nextpl.Receive()
+	})
+}
+
+func TestChangeListener(t *testing.T) {
+	n, _, l, children := createTestNode(0, 0, false, 3)
+
+	close(l.(InProcListener))
+	testTimeout(t, func() {
+		err := <-n.Error()
+		if err != ErrListenerDisconnected {
+			t.Error("failed to disconnect listener")
+		}
+
+		for _, c := range children {
+			_, open := <-c.Receive()
+			if open {
+				t.Error("failed to close children")
+			}
+		}
+	})
+
+	nl := make(InProcListener)
+	n.Listen(nl)
+	nc, err := nl.Connect()
+	if err != nil {
+		t.Error(err)
+	}
+
+	n.Send() <- Message{}
+	testTimeout(t, func() { <-nc.Receive() })
+}
+
+func TestDiscardOutgoingOnConnectionClose(t *testing.T) {
+	if testing.Short() {
+		return
+	}
+
+	n, p, _, _ := createTestNode(3, 0, true, 0)
+
+	n.Send() <- Message{}
+	n.Send() <- Message{}
+	n.Send() <- Message{}
+
+	close(p.Send())
+	testTimeout(t, func() {
+		for {
+			if _, open := <-p.Receive(); !open {
+				return
+			}
+		}
+	})
+
+	lp, rp := NewInProcConnection()
+	n.Join(rp)
+	testBlock(t, func() { <-lp.Receive() })
 }

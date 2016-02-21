@@ -30,9 +30,9 @@ type nodeConn chan<- *nodeConnControl
 type nodeControl struct {
 	typ      nodeControlType
 	message  *outgoingMessage
+	nodeConn nodeConn
 	listener Listener
 	conn     Connection
-	nodeConn nodeConn
 }
 
 type incomingMessage struct {
@@ -81,6 +81,7 @@ func discardOutgoing(om *outgoingMessage) {
 	}
 }
 
+// process for communicating between the node and a single connection
 func newNodeConn(c Connection, im chan<- *incomingMessage, nctl chan<- *nodeControl) nodeConn {
 	control := make(chan *nodeConnControl)
 
@@ -134,6 +135,9 @@ func newNodeConn(c Connection, im chan<- *incomingMessage, nctl chan<- *nodeCont
 				sendnc = nil
 			}
 
+			// never block at other places than this select
+			// to avoid blocking the main node process that
+			// may send control messages anytime.
 			select {
 			case m, open := <-receiver:
 				if open {
@@ -175,10 +179,10 @@ func newNodeConn(c Connection, im chan<- *incomingMessage, nctl chan<- *nodeCont
 }
 
 func targetConns(source nodeConn, conns []nodeConn) []nodeConn {
-	// don't send the message when not coming from
-	// an existing connection, or there is no connection
-	// to send to. don't send the message to the source
-	// connection.
+	// don't send the message when not coming from an
+	// existing connection, or there is no connection
+	// to send it to. don't send the message to the
+	// source connection.
 
 	var (
 		targetConns  []nodeConn
@@ -195,6 +199,7 @@ func targetConns(source nodeConn, conns []nodeConn) []nodeConn {
 		}
 	}
 
+	// TODO: find test scenario
 	if !existingConn {
 		return nil
 	}
@@ -205,13 +210,13 @@ func targetConns(source nodeConn, conns []nodeConn) []nodeConn {
 func waitTimeoutOrDiscard(om *outgoingMessage, timeout time.Duration, nctl chan<- *nodeControl) {
 	var (
 		timeoutc <-chan time.Time
-		toc      *nodeControl
+		tout     *nodeControl
 		sendctl  chan<- *nodeControl
 	)
 
 	if timeout > 0 {
 		timeoutc = time.After(timeout)
-		toc = &nodeControl{typ: outgoingTimeout, message: om}
+		tout = &nodeControl{typ: outgoingTimeout, message: om}
 	}
 
 	for {
@@ -220,7 +225,7 @@ func waitTimeoutOrDiscard(om *outgoingMessage, timeout time.Duration, nctl chan<
 			// block the nodeControl channel until timeout
 			// by leaving it nil
 			sendctl = nctl
-		case sendctl <- toc:
+		case sendctl <- tout:
 			sendctl = nil
 		case <-om.discard:
 			return
@@ -254,6 +259,9 @@ func dispatchMessage(
 
 func findConnMessages(c nodeConn, ms []*outgoingMessage) []*outgoingMessage {
 	var result []*outgoingMessage
+	// TODO:
+	// - could be tracked whether which conns a message is not sent to instead
+	// - benchmark with large set of nodes
 	for _, om := range ms {
 		for _, ci := range om.conns {
 			if ci == c {
@@ -287,9 +295,10 @@ func NewNode(buffer int, timeout time.Duration) Node {
 	intern, extern := NewInProcConnection()
 	control := make(chan *nodeControl)
 	incoming := make(chan *incomingMessage)
-	internConn := newNodeConn(intern, incoming, control)
+	ownConn := newNodeConn(intern, incoming, control)
 	err := make(chan error)
 
+	// process implementing a node
 	go func() {
 		var (
 			receiveIncoming <-chan *incomingMessage
@@ -312,7 +321,7 @@ func NewNode(buffer int, timeout time.Duration) Node {
 			select {
 			case m := <-receiveIncoming:
 				om := dispatchMessage(m, timeout, control,
-					append([]nodeConn{internConn, parent}, children...))
+					append([]nodeConn{ownConn, parent}, children...))
 				if om != nil {
 					outbox = append(outbox, om)
 				}
@@ -329,9 +338,9 @@ func NewNode(buffer int, timeout time.Duration) Node {
 						outbox = removeOutgoing(outbox, c.message)
 					}
 				case nodeConnClosed:
-					// closing the node connection means that node is closed
-					if c.nodeConn == internConn {
-						closeNode(internConn, parent, children, outbox)
+					// closing the node's internal connection means that the node is closed
+					if c.nodeConn == ownConn {
+						closeNode(ownConn, parent, children, outbox)
 						return
 					}
 
@@ -364,8 +373,18 @@ func NewNode(buffer int, timeout time.Duration) Node {
 
 					listen = c.listener.Connections()
 				}
-			case c := <-listen:
-				children = append(children, newNodeConn(c, incoming, control))
+			case c, open := <-listen:
+				if !open {
+					listen = nil
+					for _, c := range children {
+						c <- &nodeConnControl{typ: closeNodeConn}
+					}
+
+					children = nil
+					go func() { err <- ErrListenerDisconnected }()
+				} else {
+					children = append(children, newNodeConn(c, incoming, control))
+				}
 			}
 		}
 	}()
