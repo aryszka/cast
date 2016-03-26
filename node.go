@@ -93,6 +93,7 @@ func runConnection(
 		outm       Message
 		outbox     []*outgoingMessage
 		receiver   <-chan Message
+        closed bool
 		fwdReceive chan<- *incomingMessage
 		fwdSend    chan<- Message
 		nodeQueue  []*nodeControl
@@ -104,13 +105,16 @@ func runConnection(
 		// receive incoming from outside or forward it to the node.
 		// when there is an incoming message to be forwarded,
 		// block the receiver by setting it to nil.
-		if in == nil {
-			receiver = c.Receive()
-			fwdReceive = nil
-		} else {
-			receiver = nil
-			fwdReceive = im
-		}
+        if !closed && in == nil {
+            receiver = c.Receive()
+        } else {
+            receiver = nil
+        }
+        if in == nil {
+            fwdReceive = nil
+        } else {
+            fwdReceive = im
+        }
 
 		// when there is something in the outbox, forward it out.
 		// when there is nothing to send, block the sender
@@ -144,6 +148,7 @@ func runConnection(
 			if open {
 				in = &incomingMessage{control, &m}
 			} else {
+                closed = true
 				nodeQueue = append(nodeQueue, &nodeControl{
 					typ:      nodeConnClosed,
 					nodeConn: control})
@@ -169,7 +174,7 @@ func runConnection(
 					outbox = removeOutgoing(outbox, ctl.message)
 				}
 			case closeNodeConn:
-				close(c.Send())
+                close(c.Send())
 				return
 			}
 		}
@@ -278,9 +283,9 @@ func findConnMessages(c nodeConn, ms []*outgoingMessage) []*outgoingMessage {
 	return result
 }
 
-func closeNode(intern, parent nodeConn, children []nodeConn, outbox []*outgoingMessage) {
+func closeNode(ownConn, parent nodeConn, children []nodeConn, outbox []*outgoingMessage) {
 	cls := &connControl{typ: closeNodeConn}
-	intern <- cls
+	ownConn <- cls
 
 	if parent != nil {
 		parent <- cls
@@ -341,7 +346,7 @@ func runNode(
 					outbox = removeOutgoing(outbox, c.message)
 				}
 			case nodeConnClosed:
-				// closing the node's internal connection means that the node is closed
+				// closing the node's own connection means that the node is closed
 				if c.nodeConn == ownConn {
 					closeNode(ownConn, parent, children, outbox)
 					return

@@ -40,6 +40,12 @@ type timeoutConnection struct {
 	err        chan error
 }
 
+type relay struct {
+    msg *Message
+    from Connection
+    to Connection
+}
+
 func (c MessageChannel) Send() chan<- Message    { return c }
 func (c MessageChannel) Receive() <-chan Message { return c }
 
@@ -178,3 +184,42 @@ func NewTimeoutConnection(c Connection, t time.Duration) Connection {
 func (c *timeoutConnection) Send() chan<- Message    { return c.send }
 func (c *timeoutConnection) Receive() <-chan Message { return c.connection.Receive() }
 func (c *timeoutConnection) Error() <-chan error     { return c.err }
+
+func newRelay(to, from Connection) *relay {
+    return &relay{from: from, to: to}
+}
+
+func (r *relay) received(m Message, open bool) {
+    r.msg = &m
+    if !open {
+        close(r.to.Send())
+    }
+}
+
+func (r *relay) sent() {
+    r.msg = nil
+}
+
+func (r *relay) message() (m Message) {
+    if r.msg != nil {
+        m = *r.msg
+    }
+
+    return
+}
+
+func (r *relay) receive() <-chan Message {
+    if r.msg == nil {
+        return r.from.Receive()
+    }
+
+    return nil
+}
+
+func (r *relay) send() chan<- Message {
+    if r.msg == nil {
+        return nil
+    }
+
+    return r.to.Send()
+}

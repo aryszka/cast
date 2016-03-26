@@ -113,6 +113,7 @@ type InterfaceTranslation interface {
 // node cannot be blocking by default, because it can be a leaf node
 // node error routine never exits
 // similarities and differences between node and go channel communication
+// takes over owner ship of connection close
 type Node interface {
 	Connection
 	Join(Connection)
@@ -133,6 +134,7 @@ var (
 // - what does address translation mean for this, how to identify a node?
 // - message loss from parent to child
 // - need a concept of the address, address space
+// join should be blocking because no other guarantee to send, or?
 // collector and emitter
 // mux and demux
 // filter
@@ -140,3 +142,5 @@ var (
 // document all
 // write a cmd client
 // it is possible to implement full network recovery by introducing the concept of a network
+// having the connection public can be fragile when one uses the node as a connection because taking over
+// ownership over the connection close
